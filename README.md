@@ -1,1 +1,1 @@
-# Hello world# Postgres Module for Xplend Framework
+# Postgres Module for Xplend Framework
