@@ -1,0 +1,97 @@
+# Xplend Example Project
+.tmp
+config/*.yml
+database/*.yml
+*/config/*.yml
+*/database/*.yml
+public/upload/*
+src/controllers/*
+src/jobs/*
+src/libs/*
+src/modules/*
+src/services/*
+!src/controllers/.gitkeep
+!src/jobs/.gitkeep
+!src/libs/.gitkeep
+!src/modules/.gitkeep
+!src/services/.gitkeep
+
+# Jw
+*.scss
+*.psd
+*backup*
+*-bk*
+*copy*
+*scss*
+*.vscode*
+.DS_Store
+package-lock.json
+
+# React, Cordova
+platforms/
+node_modules/
+cert/
+plugins/
+*zipalign*
+*keystore*
+android/
+ios/
+__tests__/
+
+# Compiled source #
+###################
+*.com
+*.class
+*.dll
+*.exe
+*.o
+*.so
+
+# Packages
+*.7z
+*.dmg
+*.gz
+*.iso
+*.jar
+*.rar
+*.tar
+*.zip
+
+# Logs and databases
+*.log
+*.sql
+*.sqlite
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Others
+scripts/flow/*/.flowconfig
+.flowconfig
+*~
+*.pyc
+.grunt
+_SpecRunner.html
+__benchmarks__
+build/
+remote-repo/
+coverage/
+.module-cache
+fixtures/dom/public/react-dom.js
+fixtures/dom/public/react.js
+test/the-files-to-test.generated.js
+*.log*
+chrome-user-data
+*.sublime-project
+*.sublime-workspace
+.idea
+*.iml
+.vscode
+*.swp
+*.swo
