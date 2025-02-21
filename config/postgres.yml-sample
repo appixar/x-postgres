@@ -2,47 +2,41 @@
 # Database settings
 #································
 POSTGRES:
-  "main":
-    - TYPE: write
-      NAME: defaultdb
-      HOST: <ENV.DB_HOST>
+  DB:
+    "main":
+      - TYPE: write
+        NAME: defaultdb
+        HOST: <ENV.DB_HOST>
+        USER: <ENV.DB_USER>
+        PASS: <ENV.DB_PASS>
+        PORT: <ENV.DB_PORT>
+        PREF: en_ # TABLES PREFIX
+        #PATH: [app/database/main] # OPTIONAL. SPECIFIC PATH. MULTI WITH ",".
+      - TYPE: read
+        NAME: defaultdb
+        HOST: 
+          - <ENV.DB_HOST_READ>
+        USER: <ENV.DB_USER>
+        PASS: <ENV.DB_PASS>
+        PORT: <ENV.DB_PORT>
+        PREF: en_ # TABLES PREFIX
+        #PATH: [app/database/main] # OPTIONAL. SPECIFIC PATH. MULTI WITH ",".
+    "dynamic":
+      NAME: defaultdb_<TENANT_KEY> # % = TENANT KEY
+      HOST: <ENV.DB_HOST> # % = TENANT KEY
       USER: <ENV.DB_USER>
       PASS: <ENV.DB_PASS>
       PORT: <ENV.DB_PORT>
-      PREF: en_ # TABLES PREFIX
-      #PATH: [app/database/main] # OPTIONAL. SPECIFIC PATH. MULTI WITH ",".
-    - TYPE: read
-      NAME: defaultdb
-      HOST: <ENV.DB_HOST_READ>
-      USER: <ENV.DB_USER>
-      PASS: <ENV.DB_PASS>
-      PORT: <ENV.DB_PORT>
-      PREF: en_ # TABLES PREFIX
-      #PATH: [app/database/main] # OPTIONAL. SPECIFIC PATH. MULTI WITH ",".
-    - TYPE: read
-      NAME: defaultdb
-      HOST: <ENV.DB_HOST>
-      USER: <ENV.DB_USER>
-      PASS: <ENV.DB_PASS>
-      PORT: <ENV.DB_PORT>
-      PREF: en_ # TABLES PREFIX
-      #PATH: [app/database/main] # OPTIONAL. SPECIFIC PATH. MULTI WITH ",".
-  "dynamic":
-    NAME: defaultdb_<TENANT_KEY> # % = TENANT KEY
-    HOST: <ENV.DB_HOST> # % = TENANT KEY
-    USER: <ENV.DB_USER>
-    PASS: <ENV.DB_PASS>
-    PORT: <ENV.DB_PORT>
-    PREF: en_
-    PATH: [modules/auth/database]
-    # MULTI-TENANT LOOP (FOR MASON DATABASE UP)
-    TENANT_KEYS:
-      # OPTION 1
-      # CONTROLLER: TenantKeysController.method
-      # OPTION 2
-      # JSON_URL: /lista.json
-      # OPTION 3
-      DBKEY: main
-      TABLE: en_project
-      FIELD: pro_code
-      WHERE: pro_status > 0
+      PREF: en_
+      PATH: [modules/auth/database]
+      # MULTI-TENANT LOOP (FOR MASON DATABASE UP)
+      TENANT_KEYS:
+        # OPTION 1
+        # CONTROLLER: TenantKeysController.method
+        # OPTION 2
+        # JSON_URL: /lista.json
+        # OPTION 3
+        DBKEY: main
+        TABLE: en_project
+        FIELD: pro_code
+        WHERE: pro_status > 0
