@@ -1,119 +1,186 @@
 <?php
 class PgService extends Services
 {
-    public $con = array();
-    public $conf = [];
-    public $error = false;
-    public $die = true; // die after query errors
-    private static $instances = [];
-    /*
-    $conf = array(
-        'die' => true,
-        'id' => 0, // $_APP_VAULT[Postgres][0]
-    );
+    /* $conf = [
+        'cluster' => 'clusterName', # nome do cluster (chave do array da config dos BDs)
+        'ignore_dbname' => true,    # ignorar seleção do nome do BD ao se conectar
+        'primary' => true           # caso esteja em modo múltiplas réplicas, forçar execução no primário
+    ]
     */
+    public $conf = [];
+    public $con = null;
+    public $conWrite = null;
+    public $conRead = null;
+    public $error = false;
+    private $die = true; // die after query errors
+    private static $instances = [];
     public function __construct($conf = array())
     {
         $this->conf = $conf;
     }
-    public function connect()
+    public function connect($currentType = 'read')
     {
-        global $_APP_VAULT, $_ENV;
-        if (!@$_APP_VAULT["POSTGRES"]) die('Postgres config is missing');
+        global $_APP_VAULT;
 
-        // Get conf
+        if (!isset($_APP_VAULT["POSTGRES"]["DB"])) die('Postgres config is missing');
+
+        // Configuração da conexão
         $conf = $this->conf;
-
-        // Die after query errors?
         if (isset($conf['die'])) $this->die = $conf['die'];
 
-        // Default connection ID = first
-        $con_id = @$conf['db_key'];
-        if (!$con_id) {
-            foreach ($_APP_VAULT["POSTGRES"] as $k => $v) {
-                $con_id = $k;
-                break;
-            }
+        // Obter nome do cluster
+        $clusterName = $conf['cluster'] ?? array_key_first($_APP_VAULT["POSTGRES"]["DB"]);
+        if (!$clusterName || !isset($_APP_VAULT["POSTGRES"]["DB"][$clusterName])) {
+            Xplend::err("Postgres", "Database cluster not found: $clusterName");
         }
+        // Dados do cluster
+        $clusterList = $_APP_VAULT["POSTGRES"]["DB"][$clusterName];
+        if (!is_array($clusterList)) Xplend::err("Postgres", "Config format error");
+        $clusterData = [];
+        $clusterWrite = []; // armazenar será útil para checar se o usuário quer forçar execução no node primário
 
-        // Connection data
-        $pg = @$_APP_VAULT["POSTGRES"][$con_id];
-        if (!$pg) die("Conn ID not found: $con_id");
-
-        // Replace with env variables
-        foreach ($pg as $k => $v) {
-            if (!is_array($v) and substr($v, 0, 1) === '<' and substr($v, -1) === '>') {
-                $v = substr($v, 1, -1);
-                if (@!$_ENV[$v]) die("'$v' not found in .env");
-                $pg[$k] = $_ENV[$v];
-            }
-        }
-
-        // Wildcard variable replacement
-        if (@$conf['tenant_key']) {
-            foreach ($pg as $k => $v) {
-                $pg[$k] = str_replace('<TENANT_KEY>', $conf['tenant_key'], $v);
-            }
-        }
-
-        // Don't select database? (create if not exists after)
-        $dbName = '';
-        if (@!$conf['ignore-database']) $dbName = "dbname={$pg['NAME']}";
-
-        // Unique identifier for connection configuration
-        $uniqueId = md5(serialize($pg));
-
-        // Check if an instance with the same configuration already exists
-        if (isset(self::$instances[$uniqueId])) {
-            return self::$instances[$uniqueId];
-        }
-
-        // Connect
-        try {
-            // Create new PDO connection instance
-            $dsn = "pgsql:host={$pg['HOST']};{$dbName};port={$pg['PORT']}";
-            $con = new PDO($dsn, $pg['USER'], $pg['PASS'], array(PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION));
-            // Store the instance in the static property
-            self::$instances[$uniqueId] = $con;
-            return $con;
-        } catch (PDOException $e) {
-            die($e->getMessage());
-        }
-    }
-
-    public function query($query, $variables = array())
-    {
-        if (!$this->con) $this->con = $this->connect();
-        $stmt = $this->con->prepare($query);
-
-        if ($variables) {
-            $keys_find = explode(":", $query);
-            unset($keys_find[0]);
-            array_values($keys_find);
-            foreach ($keys_find as $key) {
-                $key = explode(" ", $key)[0];
-                if (!is_numeric($key) && isAlphanumericOrUnderscore($key)) {
-                    if (@$variables[$key]) $stmt->bindValue(":$key", $variables[$key]);
-                    else die("Bind key not found ':$key'");
+        // Multiplos DB no cluster
+        // Obter dados de leitura e escrita
+        $isMulti = false;
+        if (array_keys($clusterList) === range(0, count($clusterList) - 1)) $isMulti = true;
+        // Múltiplos Nodes neste cluster
+        if ($isMulti) {
+            // Verificar se 'type' foi definido corretamente em todos os DB
+            // ... e apenas um pode ser 'write'
+            $writeCount = 0;
+            foreach ($clusterList as $k => $v) {
+                if (!@$v['TYPE']) Xplend::err("Postgres", "Type can't be null on cluster '$clusterName'");
+                if (!in_array(@$v['TYPE'], ['write', 'read'])) Xplend::err("Postgres", "Wrong type '{$v['TYPE']}' on cluster '$clusterName'");
+                if (@$v['TYPE'] == 'write') {
+                    $writeCount++;
+                    $clusterWrite = $v;
+                    if ($currentType == 'write') $clusterData = $v;
+                } else {
+                    // Opção 1: Array com múltiplos HOSTS por NODE
+                    $hostList = $v['HOST'];
+                    if (is_array($hostList)) {
+                        foreach ($hostList as $host) {
+                            $node = $v;
+                            $node['HOST'] = $host;
+                            $clusterReadOptions[] = $node;
+                        }
+                    }
+                    // Opção 2: Um HOST por NODE
+                    else $clusterReadOptions[] = $v;
                 }
             }
+            if ($writeCount > 1) Xplend::err("Postgres", "Only one DB can be 'write' type");
+            // Escolher um BD para read
+            if ($currentType == 'read') {
+                $randomIndex = array_rand($clusterReadOptions);
+                #echo "index read=" . $randomIndex . PHP_EOL;
+                $clusterData = $clusterReadOptions[$randomIndex];
+            }
         }
-        if (!$stmt->execute()) {
-            if ($this->die) die($stmt->errorInfo()[2]);
-            $this->error = $stmt->errorInfo()[2];
-            return false;
+        // Único NODE neste cluster
+        else $clusterData = $clusterList;
+        #prex($clusterData);
+
+        // Forçar execução no node primário? (node escrita)
+        if (@$conf['primary'] and $isMulti) {
+            $clusterData = $clusterWrite;
+            $currentType = 'write';
         }
-        $res = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Se a conexão já existe, reutilizar
+        if (isset(self::$instances[$clusterName][$currentType])) {
+            #echo "ja existe, aproveitar: $currentType" . PHP_EOL;
+            // Current con for current query
+            $this->con = self::$instances[$clusterName][$currentType];
+            return;
+        }
+        // Criar conexão
+        try {
+            $dbName = isset($conf['ignore_dbname']) ? '' : "dbname={$clusterData['NAME']}";
+            $dsn = "pgsql:host={$clusterData['HOST']};{$dbName};port={$clusterData['PORT']}";
+            $pdo = new PDO($dsn, $clusterData['USER'], $clusterData['PASS'], [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_PERSISTENT => true
+            ]);
+
+            // Armazena a conexão para reutilização
+            self::$instances[$clusterName][$currentType] = $pdo;
+            // Conexão atual
+            $this->con = $pdo;
+            // Conexões write & read, para próximas queries
+            if ($currentType == 'write') $this->conWrite = $pdo;
+            else $this->conRead = $pdo;
+
+            #echo "nova conexao: $currentType" . PHP_EOL;
+        } catch (PDOException $e) {
+            die("PostgreSQL Connection Error: " . $e->getMessage());
+        }
+    }
+    private function getConnection($currentType = 'read')
+    {
+        if ($currentType == 'write' and $this->conWrite) $this->con = $this->conWrite;
+        elseif ($currentType == 'read' and $this->conRead) $this->con = $this->conRead;
+        else $this->connect($currentType);
+    }
+
+    public function query($query, $variables = array(), $cacheTimer = 0)
+    {
+        // CACHE FIRST
+        if ($cacheTimer > 0) {
+            $cache = new Cache();
+            $cacheKey = md5($query . json_encode($variables));
+            $res = $cache->get($cacheKey);
+            if ($res) {
+                #echo 'reading from cache...' . PHP_EOL;
+                return $res;
+            }
+        }
+        try {
+            // SELECT CONNECTION
+            $type = 'write';
+            if ($this->isReadOnlyQuery($query)) $type = 'read';
+            $this->getConnection($type);
+            $stmt = $this->con->prepare($query);
+
+            if ($variables) {
+                $keys_find = explode(":", $query);
+                unset($keys_find[0]);
+                array_values($keys_find);
+                foreach ($keys_find as $key) {
+                    $key = trim(explode(" ", $key)[0]);
+                    if (!is_numeric($key) && isAlphanumericOrUnderscore($key)) {
+                        if (isset($variables[$key])) $stmt->bindValue(":$key", $variables[$key]);
+                        else Xplend::err("Postgres", "Bind key not found ':$key'");
+                    }
+                }
+            }
+            if (!$stmt->execute()) {
+                if ($this->die) die($stmt->errorInfo()[2]);
+                $this->error = $stmt->errorInfo()[2];
+                return false;
+            }
+            // RESULT
+            $res = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException $e) {
+            if (Xplend::isAPI()) Http::die(500, $e->getMessage());
+            else Xplend::err("Postgres", $e->getMessage());
+        }
+
+        // SAVE IN CACHE
+        if ($cacheTimer > 0) {
+            #echo 'saving on cache...' . PHP_EOL;
+            $cache->set($cacheKey, $res, $cacheTimer);
+        }
+        // RETURN
         return $res;
     }
 
     public function insert($table, $data = array())
     {
-        if (!$this->con) $this->con = $this->connect();
-
+        $this->getConnection('write');
         $binds = array();
-
         $col = $val = $comma = "";
+
         foreach ($data as $k => $v) {
             if ($v === "NULL" or $v === "null" or $v === '') $v = "NULL";
             elseif (is_numeric($v)) $v = "$v";
@@ -125,34 +192,34 @@ class PgService extends Services
             $col .= "$comma\"$k\"";
             $comma = ",";
         }
+
         $query = "INSERT INTO \"$table\" ($col) VALUES ($val)";
 
-        $stmt = $this->con->prepare($query);
-
-        foreach ($binds as $k => $v) $stmt->bindValue(":$k", $v);
-
-        if (!$stmt->execute()) {
-            if ($this->die) die($stmt->errorInfo()[2]);
-            $this->error = $stmt->errorInfo()[2];
-            return false;
+        try {
+            $stmt = $this->con->prepare($query);
+            foreach ($binds as $k => $v) $stmt->bindValue(":$k", $v);
+            if (!$stmt->execute()) {
+                if ($this->die) die($stmt->errorInfo()[2]);
+                $this->error = $stmt->errorInfo()[2];
+                return false;
+            }
+        } catch (PDOException $e) {
+            Xplend::err("Postgres", $e->getMessage());
         }
 
         try {
-            $id = $this->con->lastInsertId();
-            return $id;
+            return $this->con->lastInsertId();
         } catch (PDOException $e) {
-            //die('Failed to get last insert ID: ' . $e->getMessage());
             return false;
         }
     }
 
     public function update($table, $data = array(), $condition = array())
     {
-        if (!$this->con) $this->con = $this->connect();
-
+        $this->getConnection('write');
         $binds = array();
-
         $comma = $values = $and = $where = "";
+
         foreach ($data as $k => $v) {
             if ($v === "NULL" or $v === "null") $v = "NULL";
             elseif (is_numeric($v)) $v = "$v";
@@ -176,19 +243,30 @@ class PgService extends Services
                 }
                 $and = " AND ";
             }
-        } else $where = $condition;
+        } else {
+            $where = $condition;
+        }
 
         $query = "UPDATE \"$table\" SET $values WHERE $where";
-
-        $stmt = $this->con->prepare($query);
-
-        foreach ($binds as $k => $v) $stmt->bindValue(":$k", $v);
-
-        if (!$stmt->execute()) {
-            if ($this->die) die($stmt->errorInfo()[2]);
-            $this->error = $stmt->errorInfo()[2];
-            return false;
+        try {
+            $stmt = $this->con->prepare($query);
+            foreach ($binds as $k => $v) $stmt->bindValue(":$k", $v);
+            if (!$stmt->execute()) {
+                if ($this->die) die($stmt->errorInfo()[2]);
+                $this->error = $stmt->errorInfo()[2];
+                return false;
+            }
+        } catch (PDOException $e) {
+            Xplend::err("Postgres", $e->getMessage());
         }
+
         return $stmt->rowCount();
+    }
+    private function isReadOnlyQuery($query)
+    {
+        $query = trim($query);
+        $queryType = strtoupper(strtok($query, " ")); // Obtém a primeira palavra da query
+        $readOnlyCommands = ['SELECT', 'SHOW', 'EXPLAIN', 'WITH RECURSIVE'];
+        return in_array($queryType, $readOnlyCommands);
     }
 }

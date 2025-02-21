@@ -1,0 +1,80 @@
+POSTGRES:
+  CUSTOM_FIELDS:
+    "id":
+      Type: serial
+      Null: NO
+      Default:
+      Key: PRI
+      Extra:
+    "str":
+      Type: varchar(64)
+      Null: YES
+      Default:
+      Key:
+      Extra:
+    "date":
+      Type: timestamp 
+      Null: YES
+      Default:
+      Key:
+      Extra:
+    "int":
+      Type: integer
+      Null: YES
+      Default:
+      Key:
+      Extra:
+    "float":
+      Type: real // real no PostgreSQL
+      Null: YES
+      Default:
+      Key:
+      Extra:
+    "text":
+      Type: text // text no PostgreSQL
+      Null: YES
+      Default:
+      Key:
+      Extra:
+    "email":
+      Type: varchar(128)
+      Null: YES
+      Default:
+      Key:
+      Extra:
+    "ucwords":
+      Type: varchar(64)
+      Null: YES
+      Default:
+      Key:
+      Extra:
+    "phone":
+      Type: varchar(11)
+      Null: YES
+      Default:
+      Key:
+      Extra:
+    "cpf":
+      Type: varchar(11)
+      Null: YES
+      Default:
+      Key:
+      Extra:
+    "cnpj":
+      Type: varchar(14)
+      Null: YES
+      Default:
+      Key:
+      Extra:
+    "alphanumeric":
+      Type: varchar(64)
+      Null: YES
+      Default:
+      Key:
+      Extra:
+    "url":
+        Type: text
+        Null: YES
+        Default:
+        Key:
+        Extra:

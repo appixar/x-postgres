@@ -3,13 +3,30 @@
 #································
 POSTGRES:
   "main":
-    NAME: defaultdb
-    HOST: <ENV.DB_HOST>
-    USER: <ENV.DB_USER>
-    PASS: <ENV.DB_PASS>
-    PORT: <ENV.DB_PORT>
-    PREF: en_ # TABLES PREFIX
-    #PATH: [app/database/main] # OPTIONAL. SPECIFIC PATH. MULTI WITH ",".
+    - TYPE: write
+      NAME: defaultdb
+      HOST: <ENV.DB_HOST>
+      USER: <ENV.DB_USER>
+      PASS: <ENV.DB_PASS>
+      PORT: <ENV.DB_PORT>
+      PREF: en_ # TABLES PREFIX
+      #PATH: [app/database/main] # OPTIONAL. SPECIFIC PATH. MULTI WITH ",".
+    - TYPE: read
+      NAME: defaultdb
+      HOST: <ENV.DB_HOST_READ>
+      USER: <ENV.DB_USER>
+      PASS: <ENV.DB_PASS>
+      PORT: <ENV.DB_PORT>
+      PREF: en_ # TABLES PREFIX
+      #PATH: [app/database/main] # OPTIONAL. SPECIFIC PATH. MULTI WITH ",".
+    - TYPE: read
+      NAME: defaultdb
+      HOST: <ENV.DB_HOST>
+      USER: <ENV.DB_USER>
+      PASS: <ENV.DB_PASS>
+      PORT: <ENV.DB_PORT>
+      PREF: en_ # TABLES PREFIX
+      #PATH: [app/database/main] # OPTIONAL. SPECIFIC PATH. MULTI WITH ",".
   "dynamic":
     NAME: defaultdb_<TENANT_KEY> # % = TENANT KEY
     HOST: <ENV.DB_HOST> # % = TENANT KEY

@@ -133,10 +133,12 @@ class PgBuilder extends Xplend
     private function convertField($field)
     {
         $new_field = array();
+        $individual_indexes = [];
+        $composite_indexes = [];
+
         if (!is_array($field)) goto convertFieldEnd;
 
         foreach ($field as $k => $v) {
-            // Separar tipo e index/unique se houver
             $parts = explode(" ", $v);
             $type_part = $parts[0];
             $type = explode("/", $type_part)[0];
@@ -155,6 +157,7 @@ class PgBuilder extends Xplend
             // Comprimento do campo, se especificado
             $len = @explode("/", $type_part)[1];
             if ($len) {
+                $type_real = preg_replace('/\(\d+\)/', '', $type_real);
                 $type_real = "$type_real($len)";
             }
 
@@ -171,13 +174,22 @@ class PgBuilder extends Xplend
             $uni = array_search('unique', $parts);
             $key = ($uni !== false) ? 'UNI' : '';
 
-            // Verificar se tem INDEX e se tem nome personalizado
-            $index_name = '';
+            // Identificar índices
             foreach ($parts as $part) {
                 if (strpos($part, 'index') !== false) {
                     $index_parts = explode("/", $part);
                     if (isset($index_parts[1])) {
-                        $index_name = $index_parts[1];  // Nome do identificador do índice
+                        // Índice nomeado (ex: index/status,basic)
+                        $index_names = explode(",", $index_parts[1]);
+                        foreach ($index_names as $index_name) {
+                            if (!isset($composite_indexes[$index_name])) {
+                                $composite_indexes[$index_name] = [];
+                            }
+                            $composite_indexes[$index_name][] = $k;
+                        }
+                    } else {
+                        // Índice isolado sem nome (ex: index)
+                        $individual_indexes[] = $k;
                     }
                 }
             }
@@ -187,30 +199,34 @@ class PgBuilder extends Xplend
                 'Type' => strtoupper($type_real),
                 'Null' => $null,
                 'Key' => $key,
-                'IndexName' => $index_name,  // Nome do identificador do índice, se houver
                 'Extra' => strtoupper(@$this->schema_default[$type]['Extra']),
             );
         }
 
         convertFieldEnd:
-        return $new_field;
+        return [
+            'fields' => $new_field,
+            'individual_indexes' => array_unique($individual_indexes),
+            'composite_indexes' => $composite_indexes
+        ];
     }
-
-
-
     //-------------------------------------------------------
     // CREATE TABLE : EXECUTA A QUERY
     //-------------------------------------------------------
-    private function createTable($table, $field, $pg)
+    private function createTable($table, $schema, $pg)
     {
         if (!$this->mute) Mason::say("∴ $table", true, 'blue');
+
         $_comma = '';
         $query = "CREATE TABLE \"$table\" (" . PHP_EOL;
 
         $unique_fields = [];
         $index_fields = [];
+        $composite_indexes = $schema['composite_indexes'];
+        $individual_indexes = $schema['individual_indexes'];
+        $fields = $schema['fields'];
 
-        foreach ($field as $k => $v) {
+        foreach ($fields as $k => $v) {
             // FIELD PARAMETERS
             $type = strtoupper($v['Type']);
             $null = ($v['Null'] === 'NOT NULL') ? "NOT NULL" : ($v['Null'] === '' ? '' : "NULL");
@@ -218,7 +234,7 @@ class PgBuilder extends Xplend
 
             // Evitar o uso de NULL para tipos como SERIAL
             if (strpos($type, 'SERIAL') !== false) {
-                $null = ''; // SERIAL não aceita NULL ou NOT NULL
+                $null = '';
             }
 
             $query .= $_comma . "\"$k\" $type $null $extra";
@@ -233,8 +249,8 @@ class PgBuilder extends Xplend
                 $unique_fields[] = $k;
             }
 
-            // Coletar campos para INDEX
-            if (@$v['Key'] === 'MUL') {
+            // Coletar campos para índices individuais
+            if (in_array($k, $individual_indexes)) {
                 $index_fields[] = $k;
             }
 
@@ -248,54 +264,165 @@ class PgBuilder extends Xplend
         $this->queries_color[] = 'green';
         $this->actions++;
 
-        // Adicionar UNIQUE constraints após criação da tabela
+        // Adicionar UNIQUE constraints
         foreach ($unique_fields as $unique_field) {
             $query = "ALTER TABLE \"$table\" ADD CONSTRAINT \"{$table}_{$unique_field}_unique\" UNIQUE (\"$unique_field\");";
             $this->queries[] = $query;
-            $this->queries_mini[] = "CREATE UNIQUE \"$unique_field\" ...";
+            $this->queries_mini[] = "ADD UNIQUE \"{$table}_{$unique_field}_unique\" ...";
             $this->queries_color[] = 'cyan';
             if (!$this->mute) Mason::say("→ $query", false, 'cyan');
             $this->actions++;
         }
 
-        // Criar índices após a criação da tabela
+        // Criar índices individuais
         foreach ($index_fields as $index_field) {
             $query = "CREATE INDEX \"{$table}_{$index_field}_idx\" ON \"$table\" (\"$index_field\");";
             $this->queries[] = $query;
-            $this->queries_mini[] = "CREATE INDEX \"$index_field\" ...";
+            $this->queries_mini[] = "ADD INDEX \"{$table}_{$index_field}_idx\" ...";
+            $this->queries_color[] = 'cyan';
+            if (!$this->mute) Mason::say("→ $query", false, 'cyan');
+            $this->actions++;
+        }
+
+        // Criar índices compostos nomeados
+        foreach ($composite_indexes as $index_name => $columns) {
+            $columns_str = implode('", "', $columns);
+            $query = "CREATE INDEX \"{$table}_{$index_name}_idx\" ON \"$table\" (\"$columns_str\");";
+            $this->queries[] = $query;
+            $this->queries_mini[] = "ADD INDEX \"{$table}_{$index_name}_idx\" ...";
             $this->queries_color[] = 'cyan';
             if (!$this->mute) Mason::say("→ $query", false, 'cyan');
             $this->actions++;
         }
     }
-
     //-------------------------------------------------------
     // UPDATE TABLE : EXECUTA A QUERY
     //-------------------------------------------------------
-    private function updateTable($table, $field, $field_curr, $pg)
+    private function updateTable($table, $schema, $field_curr, $pg)
     {
         if (!$this->mute) Mason::say("∴ $table", true, 'blue');
-        $query = '';
-
-        // REMOVE CAMPOS
-        foreach ($field_curr as $k => $v) {
-            if (!@$field[$k]) {
-                $query = "ALTER TABLE \"$table\" DROP COLUMN \"$k\";";
-                $this->queries[] = $query;
-                $this->queries_color[] = 'yellow';
-                if (!$this->mute) Mason::say("→ $query", false, 'yellow');
-                $this->actions++;
+    
+        $fields = $schema['fields'];
+        $individual_indexes = $schema['individual_indexes'];
+        $composite_indexes = $schema['composite_indexes'];
+    
+        // Buscar índices existentes no banco de dados
+        $existing_indexes = $pg->query("
+            SELECT indexname 
+            FROM pg_indexes 
+            WHERE tablename = '$table'
+        ");
+    
+        // Buscar constraints UNIQUE existentes
+        $existing_uniques = $pg->query("
+            SELECT conname 
+            FROM pg_constraint 
+            WHERE conrelid = '$table'::regclass 
+            AND contype = 'u'
+        ");
+    
+        // Armazenar os índices e constraints UNIQUE existentes para comparação
+        $existing_index_names = [];
+        foreach ($existing_indexes as $index) {
+            $existing_index_names[] = $index['indexname'];
+        }
+    
+        $existing_unique_names = [];
+        foreach ($existing_uniques as $unique) {
+            $existing_unique_names[] = $unique['conname'];
+        }
+    
+        // Índices esperados (da configuração)
+        $expected_indexes = [];
+        $expected_unique_names = [];
+    
+        // Índices individuais esperados
+        foreach ($individual_indexes as $index_field) {
+            $expected_indexes[] = "{$table}_{$index_field}_idx";
+        }
+    
+        // Índices compostos esperados
+        foreach ($composite_indexes as $index_name => $columns) {
+            $expected_indexes[] = "{$table}_{$index_name}_idx";
+        }
+    
+        // Adicionar constraints UNIQUE esperados
+        foreach ($fields as $k => $v) {
+            if (@$v['Key'] === 'UNI') {
+                $expected_unique_names[] = "{$table}_{$k}_unique";
+                $expected_indexes[] = "{$table}_{$k}_unique";
             }
         }
-
-        // CRIAR + ATUALIZAR CAMPOS
-        foreach ($field as $k => $v) {
-            if (!@$field_curr[$k]) {
+    
+        // 🔴 **CORREÇÃO AQUI**: Remover constraints UNIQUE apenas se **não estiverem na configuração**
+        foreach ($existing_unique_names as $unique_name) {
+            if (!in_array($unique_name, $expected_unique_names)) {
+                $query = "ALTER TABLE \"$table\" DROP CONSTRAINT \"$unique_name\";";
+                $this->queries[] = $query;
+                $this->queries_color[] = 'yellow';
+                $this->actions++;
+                if (!$this->mute) Mason::say("→ $query", false, 'yellow');
+            }
+        }
+        
+        // 🔴 **CORREÇÃO AQUI**: Remover apenas índices normais que não estão mais na configuração
+        foreach ($existing_index_names as $index_name) {
+            if (!in_array($index_name, $expected_indexes)) {
+                $query = "DROP INDEX IF EXISTS \"$index_name\";";
+                $this->queries[] = $query;
+                $this->queries_color[] = 'yellow';
+                $this->actions++;
+                if (!$this->mute) Mason::say("→ $query", false, 'yellow');
+            }
+        }
+    
+        // Criar/atualizar colunas
+        foreach ($fields as $k => $v) {
+            if (!isset($field_curr[$k])) {
                 $query = "ALTER TABLE \"$table\" ADD COLUMN \"$k\" " . strtoupper($v['Type']) . " " . $v['Null'] . " " . $v['Extra'] . ";";
                 $this->queries[] = $query;
-                $this->queries_color[] = 'green';
-                if (!$this->mute) Mason::say("→ $query", false, 'green');
+                $this->queries_color[] = 'cyan';
                 $this->actions++;
+                if (!$this->mute) Mason::say("→ $query", false, 'cyan');
+            }
+        }
+    
+        // Criar índices individuais somente se não existirem
+        foreach ($individual_indexes as $index_field) {
+            $index_name = "{$table}_{$index_field}_idx";
+            if (!in_array($index_name, $existing_index_names)) {
+                $query = "CREATE INDEX \"$index_name\" ON \"$table\" (\"$index_field\");";
+                $this->queries[] = $query;
+                $this->queries_color[] = 'cyan';
+                $this->actions++;
+                if (!$this->mute) Mason::say("→ $query", false, 'cyan');
+            }
+        }
+    
+        // Criar índices compostos somente se não existirem
+        foreach ($composite_indexes as $index_name => $columns) {
+            $index_name_full = "{$table}_{$index_name}_idx";
+            if (!in_array($index_name_full, $existing_index_names)) {
+                $columns_str = implode('", "', $columns);
+                $query = "CREATE INDEX \"$index_name_full\" ON \"$table\" (\"$columns_str\");";
+                $this->queries[] = $query;
+                $this->queries_color[] = 'cyan';
+                $this->actions++;
+                if (!$this->mute) Mason::say("→ $query", false, 'cyan');
+            }
+        }
+    
+        // 🔴 **CORREÇÃO AQUI**: Criar constraints UNIQUE apenas se **não existirem**
+        foreach ($fields as $k => $v) {
+            if (@$v['Key'] === 'UNI') {
+                $unique_name = "{$table}_{$k}_unique";
+                if (!in_array($unique_name, $existing_unique_names)) {
+                    $query = "ALTER TABLE \"$table\" ADD CONSTRAINT \"$unique_name\" UNIQUE (\"$k\");";
+                    $this->queries[] = $query;
+                    $this->queries_color[] = 'cyan';
+                    $this->actions++;
+                    if (!$this->mute) Mason::say("→ $query", false, 'cyan');
+                }
             }
         }
     }
