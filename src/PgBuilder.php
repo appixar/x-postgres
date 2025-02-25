@@ -10,107 +10,38 @@ class PgBuilder extends Xplend
     public $select_database = '';
     public $select_tenant = '';
     private $actions = 0;
+    private $postgresTypeDictionary = [
+        'SERIAL'    => 'integer',
+        'VARCHAR'   => 'character varying',
+        'INT'       => 'integer',
+        'INTEGER'   => 'integer',
+        'TEXT'      => 'text',
+        'TIMESTAMP' => 'timestamp without time zone',
+        'DATE'      => 'date',
+        'TIME'      => 'time without time zone',
+        'BOOLEAN'   => 'boolean',
+        'SMALLINT'  => 'smallint',
+        'BIGINT'    => 'bigint',
+        'REAL'      => 'real',
+        'DOUBLE'    => 'double precision',
+        'NUMERIC'   => 'numeric',
+        'DECIMAL'   => 'numeric',
+        'JSON'      => 'json',
+        'JSONB'     => 'jsonb',
+        'UUID'      => 'uuid',
+    ];
 
-    // Adaptação dos tipos para PostgreSQL
-    public $schema_default = array(
-        'id' => array(
-            'Type' => 'serial', // serial no PostgreSQL
-            'Null' => 'NO',
-            'Default' => '',
-            'Key' => 'PRI',
-            'Extra' => ''
-        ),
-        'str' => array(
-            'Type' => 'varchar(64)',
-            'Null' => 'YES',
-            'Default' => '',
-            'Key' => '',
-            'Extra' => ''
-        ),
-        'date' => array(
-            'Type' => 'timestamp', // timestamp no PostgreSQL
-            'Null' => 'YES',
-            'Default' => '',
-            'Key' => '',
-            'Extra' => ''
-        ),
-        'int' => array(
-            'Type' => 'integer', // integer no PostgreSQL
-            'Null' => 'YES',
-            'Default' => '',
-            'Key' => '',
-            'Extra' => ''
-        ),
-        'float' => array(
-            'Type' => 'real', // real no PostgreSQL
-            'Null' => 'YES',
-            'Default' => '',
-            'Key' => '',
-            'Extra' => ''
-        ),
-        'text' => array(
-            'Type' => 'text', // text no PostgreSQL
-            'Null' => 'YES',
-            'Default' => '',
-            'Key' => '',
-            'Extra' => ''
-        ),
-        'email' => array(
-            'Type' => 'varchar(128)',
-            'Null' => 'YES',
-            'Default' => '',
-            'Key' => '',
-            'Extra' => ''
-        ),
-        'ucwords' => array(
-            'Type' => 'varchar(64)',
-            'Null' => 'YES',
-            'Default' => '',
-            'Key' => '',
-            'Extra' => ''
-        ),
-        'phone' => array(
-            'Type' => 'varchar(11)',
-            'Null' => 'YES',
-            'Default' => '',
-            'Key' => '',
-            'Extra' => ''
-        ),
-        'cpf' => array(
-            'Type' => 'varchar(11)',
-            'Null' => 'YES',
-            'Default' => '',
-            'Key' => '',
-            'Extra' => ''
-        ),
-        'cnpj' => array(
-            'Type' => 'varchar(14)',
-            'Null' => 'YES',
-            'Default' => '',
-            'Key' => '',
-            'Extra' => ''
-        ),
-        'alphanumeric' => array(
-            'Type' => 'varchar(64)',
-            'Null' => 'YES',
-            'Default' => '',
-            'Key' => '',
-            'Extra' => ''
-        ),
-        'url' => array(
-            'Type' => 'text',
-            'Null' => 'YES',
-            'Default' => '',
-            'Key' => '',
-            'Extra' => ''
-        ),
-    );
+    // Custom fields
+    public $custom_fields = [];
 
-    // Instância única para acesso a variáveis via método estático
     private static $instance = null;
 
     public function __construct()
     {
+        global $_APP;
+        if (!empty($_APP['POSTGRES']['CUSTOM_FIELDS'])) {
+            $this->custom_fields = @$_APP['POSTGRES']['CUSTOM_FIELDS'];
+        }
         if (!is_writable(self::DIR_SCHEMA)) {
             // die('ERROR:' . realpath(self::DIR_SCHEMA) . ' is not writable.' . PHP_EOL);
         }
@@ -118,18 +49,17 @@ class PgBuilder extends Xplend
 
     public static function getInstance()
     {
-        if (self::$instance === null) self::$instance = new self();
+        if (self::$instance === null) {
+            self::$instance = new self();
+        }
         return self::$instance;
     }
 
     public static function getParams()
     {
-        return self::getInstance()->schema_default;
+        return self::getInstance()->custom_fields;
     }
 
-    //-------------------------------------------------------
-    // CONVERTE CAMPOS YML PARA FORMATO PostgreSQL
-    //-------------------------------------------------------
     private function convertField($field)
     {
         $new_field = array();
@@ -142,11 +72,11 @@ class PgBuilder extends Xplend
             $parts = explode(" ", $v);
             $type_part = $parts[0];
             $type = explode("/", $type_part)[0];
-            $type_real = @$this->schema_default[$type]['Type'];
+            $type_real = @$this->custom_fields[$type]['Type'];
 
             if (!$type_real) {
                 $type_real = $type;
-                $this->schema_default[$type_real] = [
+                $this->custom_fields[$type_real] = [
                     'Type' => '',
                     'Null' => '',
                     'Default' => '',
@@ -154,32 +84,26 @@ class PgBuilder extends Xplend
                 ];
             }
 
-            // Comprimento do campo, se especificado
             $len = @explode("/", $type_part)[1];
             if ($len) {
                 $type_real = preg_replace('/\(\d+\)/', '', $type_real);
                 $type_real = "$type_real($len)";
             }
 
-            // Para campos SERIAL (id), não definir NULL ou NOT NULL
             if ($type === 'id' || strpos($type_real, 'SERIAL') !== false) {
                 $null = '';
             } else {
-                // Checar se é campo NOT NULL ou NULL
                 $req = array_search('required', $parts);
                 $null = ($req !== false) ? "NOT NULL" : "NULL";
             }
 
-            // Verificar se tem UNIQUE
             $uni = array_search('unique', $parts);
             $key = ($uni !== false) ? 'UNI' : '';
 
-            // Identificar índices
             foreach ($parts as $part) {
                 if (strpos($part, 'index') !== false) {
                     $index_parts = explode("/", $part);
                     if (isset($index_parts[1])) {
-                        // Índice nomeado (ex: index/status,basic)
                         $index_names = explode(",", $index_parts[1]);
                         foreach ($index_names as $index_name) {
                             if (!isset($composite_indexes[$index_name])) {
@@ -188,7 +112,6 @@ class PgBuilder extends Xplend
                             $composite_indexes[$index_name][] = $k;
                         }
                     } else {
-                        // Índice isolado sem nome (ex: index)
                         $individual_indexes[] = $k;
                     }
                 }
@@ -199,7 +122,7 @@ class PgBuilder extends Xplend
                 'Type' => strtoupper($type_real),
                 'Null' => $null,
                 'Key' => $key,
-                'Extra' => strtoupper(@$this->schema_default[$type]['Extra']),
+                'Extra' => @strtoupper(@$this->custom_fields[$type]['Extra']),
             );
         }
 
@@ -210,9 +133,7 @@ class PgBuilder extends Xplend
             'composite_indexes' => $composite_indexes
         ];
     }
-    //-------------------------------------------------------
-    // CREATE TABLE : EXECUTA A QUERY
-    //-------------------------------------------------------
+
     private function createTable($table, $schema, $pg)
     {
         if (!$this->mute) Mason::say("∴ $table", true, 'blue');
@@ -227,29 +148,24 @@ class PgBuilder extends Xplend
         $fields = $schema['fields'];
 
         foreach ($fields as $k => $v) {
-            // FIELD PARAMETERS
             $type = strtoupper($v['Type']);
             $null = ($v['Null'] === 'NOT NULL') ? "NOT NULL" : ($v['Null'] === '' ? '' : "NULL");
             $extra = strtoupper(@$v['Extra']);
 
-            // Evitar o uso de NULL para tipos como SERIAL
             if (strpos($type, 'SERIAL') !== false) {
                 $null = '';
             }
 
             $query .= $_comma . "\"$k\" $type $null $extra";
 
-            // Definir PRIMARY KEY
             if (@$v['Key'] === 'PRI') {
                 $query .= ", PRIMARY KEY (\"$k\")";
             }
 
-            // Coletar campos UNIQUE
             if (@$v['Key'] === 'UNI') {
                 $unique_fields[] = $k;
             }
 
-            // Coletar campos para índices individuais
             if (in_array($k, $individual_indexes)) {
                 $index_fields[] = $k;
             }
@@ -264,7 +180,6 @@ class PgBuilder extends Xplend
         $this->queries_color[] = 'green';
         $this->actions++;
 
-        // Adicionar UNIQUE constraints
         foreach ($unique_fields as $unique_field) {
             $query = "ALTER TABLE \"$table\" ADD CONSTRAINT \"{$table}_{$unique_field}_unique\" UNIQUE (\"$unique_field\");";
             $this->queries[] = $query;
@@ -274,7 +189,6 @@ class PgBuilder extends Xplend
             $this->actions++;
         }
 
-        // Criar índices individuais
         foreach ($index_fields as $index_field) {
             $query = "CREATE INDEX \"{$table}_{$index_field}_idx\" ON \"$table\" (\"$index_field\");";
             $this->queries[] = $query;
@@ -284,7 +198,6 @@ class PgBuilder extends Xplend
             $this->actions++;
         }
 
-        // Criar índices compostos nomeados
         foreach ($composite_indexes as $index_name => $columns) {
             $columns_str = implode('", "', $columns);
             $query = "CREATE INDEX \"{$table}_{$index_name}_idx\" ON \"$table\" (\"$columns_str\");";
@@ -295,66 +208,70 @@ class PgBuilder extends Xplend
             $this->actions++;
         }
     }
-    //-------------------------------------------------------
-    // UPDATE TABLE : EXECUTA A QUERY
-    //-------------------------------------------------------
+
     private function updateTable($table, $schema, $field_curr, $pg)
     {
         if (!$this->mute) Mason::say("∴ $table", true, 'blue');
-    
+
         $fields = $schema['fields'];
         $individual_indexes = $schema['individual_indexes'];
         $composite_indexes = $schema['composite_indexes'];
-    
-        // Buscar índices existentes no banco de dados
+
+        // Fetch existing indexes
         $existing_indexes = $pg->query("
             SELECT indexname 
             FROM pg_indexes 
             WHERE tablename = '$table'
         ");
-    
-        // Buscar constraints UNIQUE existentes
+
+        // Fetch existing UNIQUE constraints
         $existing_uniques = $pg->query("
             SELECT conname 
             FROM pg_constraint 
             WHERE conrelid = '$table'::regclass 
             AND contype = 'u'
         ");
-    
-        // Armazenar os índices e constraints UNIQUE existentes para comparação
+
         $existing_index_names = [];
         foreach ($existing_indexes as $index) {
             $existing_index_names[] = $index['indexname'];
         }
-    
+
         $existing_unique_names = [];
         foreach ($existing_uniques as $unique) {
             $existing_unique_names[] = $unique['conname'];
         }
-    
-        // Índices esperados (da configuração)
+
+        // Expected indexes and UNIQUE constraints from configuration
         $expected_indexes = [];
         $expected_unique_names = [];
-    
-        // Índices individuais esperados
+
         foreach ($individual_indexes as $index_field) {
             $expected_indexes[] = "{$table}_{$index_field}_idx";
         }
-    
-        // Índices compostos esperados
+
         foreach ($composite_indexes as $index_name => $columns) {
             $expected_indexes[] = "{$table}_{$index_name}_idx";
         }
-    
-        // Adicionar constraints UNIQUE esperados
+
         foreach ($fields as $k => $v) {
             if (@$v['Key'] === 'UNI') {
                 $expected_unique_names[] = "{$table}_{$k}_unique";
                 $expected_indexes[] = "{$table}_{$k}_unique";
             }
         }
-    
-        // 🔴 **CORREÇÃO AQUI**: Remover constraints UNIQUE apenas se **não estiverem na configuração**
+        // Drop columns not in new configuration
+        foreach ($field_curr as $column => $data) {
+            if (!isset($fields[$column])) {
+                $query = "ALTER TABLE \"$table\" DROP COLUMN \"$column\";";
+                $this->queries[] = $query;
+                $this->queries_color[] = 'yellow';
+                $this->actions++;
+                if (!$this->mute) Mason::say("→ $query", false, 'yellow');
+            }
+        }
+
+        // Remove UNIQUE constraints not in configuration
         foreach ($existing_unique_names as $unique_name) {
             if (!in_array($unique_name, $expected_unique_names)) {
                 $query = "ALTER TABLE \"$table\" DROP CONSTRAINT \"$unique_name\";";
@@ -364,8 +281,8 @@ class PgBuilder extends Xplend
                 if (!$this->mute) Mason::say("→ $query", false, 'yellow');
             }
         }
-        
-        // 🔴 **CORREÇÃO AQUI**: Remover apenas índices normais que não estão mais na configuração
+
+        // Remove indexes not in configuration
         foreach ($existing_index_names as $index_name) {
             if (!in_array($index_name, $expected_indexes)) {
                 $query = "DROP INDEX IF EXISTS \"$index_name\";";
@@ -375,8 +292,8 @@ class PgBuilder extends Xplend
                 if (!$this->mute) Mason::say("→ $query", false, 'yellow');
             }
         }
-    
-        // Criar/atualizar colunas
+
+        // Add new columns
         foreach ($fields as $k => $v) {
             if (!isset($field_curr[$k])) {
                 $query = "ALTER TABLE \"$table\" ADD COLUMN \"$k\" " . strtoupper($v['Type']) . " " . $v['Null'] . " " . $v['Extra'] . ";";
@@ -386,8 +303,51 @@ class PgBuilder extends Xplend
                 if (!$this->mute) Mason::say("→ $query", false, 'cyan');
             }
         }
-    
-        // Criar índices individuais somente se não existirem
+
+        // Update existing columns if field length differs
+        // Update existing columns if field type or length differs
+        foreach ($fields as $k => $v) {
+            if (!isset($field_curr[$k])) continue;
+
+            // Extract configured base type and length (if provided)
+            if (preg_match('/^(\w+)(?:\((\d+)\))?$/', $v['Type'], $matches)) {
+                $configBaseType = strtoupper($matches[1]);
+                $configLength   = isset($matches[2]) ? (int)$matches[2] : null;
+            } else {
+                $configBaseType = @explode("(", strtoupper($v['Type']))[0];
+                $configLength   = null;
+            }
+
+            // Map the config base type using the dictionary
+            if (isset($this->postgresTypeDictionary[$configBaseType])) {
+                $mappedConfigType = $this->postgresTypeDictionary[$configBaseType];
+            } else {
+                $mappedConfigType = strtolower($configBaseType);
+            }
+
+            // Get the current database field type and length
+            $dbType   = strtolower($field_curr[$k]['data_type']);
+            $dbLength = isset($field_curr[$k]['character_maximum_length']) ? (int)$field_curr[$k]['character_maximum_length'] : null;
+
+            // If the base type is different, update with the new type and length (if provided)
+            if ($mappedConfigType !== $dbType) {
+                $query = "ALTER TABLE \"$table\" ALTER COLUMN \"$k\" TYPE " . strtoupper($v['Type']) . ";";
+                $this->queries[] = $query;
+                $this->queries_color[] = 'cyan';
+                $this->actions++;
+                if (!$this->mute) Mason::say("→ $query", false, 'cyan');
+            }
+            // If the type is the same but the length differs, update the column type with the new length
+            else if ($configLength !== null && $dbLength !== $configLength) {
+                $query = "ALTER TABLE \"$table\" ALTER COLUMN \"$k\" TYPE " . strtoupper($v['Type']) . ";";
+                $this->queries[] = $query;
+                $this->queries_color[] = 'cyan';
+                $this->actions++;
+                if (!$this->mute) Mason::say("→ $query", false, 'cyan');
+            }
+        }
+
+        // Create individual indexes if not exists
         foreach ($individual_indexes as $index_field) {
             $index_name = "{$table}_{$index_field}_idx";
             if (!in_array($index_name, $existing_index_names)) {
@@ -398,8 +358,8 @@ class PgBuilder extends Xplend
                 if (!$this->mute) Mason::say("→ $query", false, 'cyan');
             }
         }
-    
-        // Criar índices compostos somente se não existirem
+
+        // Create composite indexes if not exists
         foreach ($composite_indexes as $index_name => $columns) {
             $index_name_full = "{$table}_{$index_name}_idx";
             if (!in_array($index_name_full, $existing_index_names)) {
@@ -411,8 +371,8 @@ class PgBuilder extends Xplend
                 if (!$this->mute) Mason::say("→ $query", false, 'cyan');
             }
         }
-    
-        // 🔴 **CORREÇÃO AQUI**: Criar constraints UNIQUE apenas se **não existirem**
+
+        // Create UNIQUE constraints if not exists
         foreach ($fields as $k => $v) {
             if (@$v['Key'] === 'UNI') {
                 $unique_name = "{$table}_{$k}_unique";
@@ -427,9 +387,6 @@ class PgBuilder extends Xplend
         }
     }
 
-    //-------------------------------------------------------
-    // DELETE TABLE : EXECUTA A QUERY
-    //-------------------------------------------------------
     private function deleteTable($table, $pg)
     {
         if (!$this->mute) Mason::say("∴ $table", true, 'blue');
@@ -440,9 +397,6 @@ class PgBuilder extends Xplend
         $this->actions++;
     }
 
-    //-------------------------------------------------------
-    // CREATE DATABASE : EXECUTA A QUERY
-    //-------------------------------------------------------
     private function createDatabase($name, $pg)
     {
         $query = "CREATE DATABASE \"$name\" ENCODING 'UTF8';";
@@ -454,15 +408,14 @@ class PgBuilder extends Xplend
         if (!$this->mute) Mason::say("→ $query", false, 'green');
     }
 
-    //-------------------------------------------------------
-    // REVERSO PARA OBTER A ESTRUTURA DA TABELA
-    //-------------------------------------------------------
     public function buildReverse()
     {
         $table = array();
         $r = jwquery("SELECT table_name FROM information_schema.tables WHERE table_schema='public'");
         for ($i = 0; $i < count($r); $i++) {
-            foreach ($r[$i] as $k => $v) $table[] = $v;
+            foreach ($r[$i] as $k => $v) {
+                $table[] = $v;
+            }
         }
         for ($i = 0; $i < count($table); $i++) {
             $field = array();
@@ -471,32 +424,27 @@ class PgBuilder extends Xplend
                 $f_name = $r[$x]['column_name'];
                 $f_type = $r[$x]['data_type'];
                 $f_null = $r[$x]['is_nullable'];
-                // Preencher lógica com base na análise da estrutura
+                // Logic to rebuild structure…
             }
         }
     }
 
-    //-------------------------------------------------------
-    // EXECUÇÃO PRINCIPAL: up() PARA GERAR OU ATUALIZAR DB/TABELAS
-    //-------------------------------------------------------
     public function up($argx)
     {
         global $_APP;
 
-        // sub --arguments
         if (@$argx['--mute']) $this->mute = true;
         if (@$argx['--create']) $this->create_database = true;
         if (@$argx['--name']) $this->select_database = $argx['--name'];
         if (@$argx['--tenant']) $this->select_tenant = $argx['--tenant'];
 
-        if (!@is_array($_APP['POSTGRES'])) {
+        if (!@is_array($_APP['POSTGRES']['DB'])) {
             Mason::say("Ops! config is missing.", false, "red");
             Mason::say("Please, verify: modules/postgres/config/postgres.yml", false, "red");
             exit;
         }
 
-        foreach ($_APP['POSTGRES'] as $db_id => $db_conf) {
-
+        foreach ($_APP['POSTGRES']['DB'] as $db_id => $db_conf) {
             if ($this->select_tenant) {
                 if (!@$db_conf['TENANT_KEYS']) continue;
             }
@@ -508,14 +456,15 @@ class PgBuilder extends Xplend
             }
             Mason::say("► PostgreSQL '$db_id' ...", true, 'cyan');
 
-            // Diretórios de configuração de DB
             if (@$db_conf['PATH']) {
                 if (!is_array($db_conf['PATH'])) $db_conf['PATH'] = [$db_conf['PATH']];
                 for ($i = 0; $i < count($db_conf['PATH']); $i++) {
                     $db_conf['PATH'][$i] = realpath(__DIR__ . '/../../../' . $db_conf['PATH'][$i] . '/');
                 }
                 $databasePaths = $db_conf['PATH'];
-            } else $databasePaths = Xplend::findPathsByType("database");
+            } else {
+                $databasePaths = Xplend::findPathsByType("database");
+            }
 
             $pg = new PgService();
 
@@ -529,7 +478,11 @@ class PgBuilder extends Xplend
 
             $tables_real = array();
             $t = $pg->query("SELECT table_name FROM information_schema.tables WHERE table_schema='public'");
-            for ($i = 0; $i < count($t); $i++) foreach ($t[$i] as $k) $tables_real[] = $k;
+            for ($i = 0; $i < count($t); $i++) {
+                foreach ($t[$i] as $k) {
+                    $tables_real[] = $k;
+                }
+            }
 
             $tables_new = array();
             foreach ($databasePaths as $path) {
@@ -562,9 +515,12 @@ class PgBuilder extends Xplend
 
                                 $field_curr = array();
                                 if (in_array($table_name, $tables_real)) {
-                                    $r = $pg->query("SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_name = '$table_name'");
+                                    // Note the inclusion of character_maximum_length for field length comparison
+                                    $r = $pg->query("SELECT column_name, data_type, is_nullable, character_maximum_length FROM information_schema.columns WHERE table_name = '$table_name'");
                                     if ($r[0]) {
-                                        for ($x = 0; $x < count($r); $x++) $field_curr[$r[$x]['column_name']] = $r[$x];
+                                        for ($x = 0; $x < count($r); $x++) {
+                                            $field_curr[$r[$x]['column_name']] = $r[$x];
+                                        }
                                         $this->updateTable($table_name, $field, $field_curr, $pg);
                                     }
                                 } else {
@@ -582,7 +538,6 @@ class PgBuilder extends Xplend
                 if (!in_array($k, $tables_new)) $this->deleteTable($k, $pg);
             }
 
-            // CONFIRM CHANGES
             execute:
             if (!empty($this->queries)) {
                 Mason::say("→ {$this->actions} requested actions for: $db_id");
@@ -604,9 +559,6 @@ class PgBuilder extends Xplend
                     goto next_tenant;
                 }
 
-                //----------------------------------------------
-                // EXECUTE QUERIES!
-                //----------------------------------------------
                 for ($z = 0; $z < count($this->queries); $z++) {
                     $pg->query($this->queries[$z]);
                 }
