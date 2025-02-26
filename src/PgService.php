@@ -9,6 +9,7 @@ class PgService extends Services
     */
     public $conf = [];
     public $con = null;
+    public $conData = [];
     public $conWrite = null;
     public $conRead = null;
     public $error = false;
@@ -107,6 +108,7 @@ class PgService extends Services
             self::$instances[$clusterName][$currentType] = $pdo;
             // Conexão atual
             $this->con = $pdo;
+            $this->conData = $clusterData;
             // Conexões write & read, para próximas queries
             if ($currentType == 'write') $this->conWrite = $pdo;
             else $this->conRead = $pdo;
@@ -174,12 +176,69 @@ class PgService extends Services
         // RETURN
         return $res;
     }
+    public function getTableFields($table)
+    {
+        $path = @$this->conData['PATH'];
+        $pref = @$this->conData['PREF'];
+        if ($path) {
+            if (!is_array($path)) $path = [$path];
+            for ($i = 0; $i < count($path); $i++) {
+                $path[$i] = realpath(__DIR__ . '/../../../' . $path[$i] . '/');
+            }
+            $databasePaths = $path;
+        } else $databasePaths = Xplend::findPathsByType("database");
 
+        foreach ($databasePaths as $path) {
+            if (file_exists($path) and is_dir($path)) {
+                $table_files = scandir($path);
+                foreach ($table_files as $fn) {
+                    $fp = "$path/$fn";
+                    if (is_file($fp)) {
+                        $data = @yaml_parse(file_get_contents($fp));
+                        if (!is_array($data)) continue;
+                        foreach ($data as $table_name => $table_cols) {
+                            if (substr($table_name, 0, 1) === '~') {
+                                $table_name = $pref . substr($table_name, 1);
+                            }
+                            if ($table_name == $table) return $table_cols;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    public function replaceGenerateFields($table, $data)
+    {
+        $fields = $this->getTableFields($table);
+        if (!empty($fields)) {
+            foreach ($fields as $fieldName => $fieldConf) {
+                $parts = explode(" ", $fieldConf);
+                $fieldType = $parts[0];
+                if (in_array('generate', $parts)) {
+                    if (!function_exists('generate_' . $fieldType)) {
+                        Xplend::err('Postgres', "Generate function not found: generate_$fieldType()");
+                    } else {
+                        $generateData = [
+                            'table' => $table,
+                            'data' => $data,
+                            'field_name' => $fieldName,
+                            'field_data' => @$data[$fieldName]
+                        ];
+                        $data[$fieldName] = call_user_func("generate_" . $fieldType, $generateData);
+                    }
+                }
+            }
+        }
+        return $data;
+    }
     public function insert($table, $data = array())
     {
         $this->getConnection('write');
         $binds = array();
         $col = $val = $comma = "";
+
+        // Replace generate fields
+        $data = $this->replaceGenerateFields($table, $data);
 
         foreach ($data as $k => $v) {
             if ($v === "NULL" or $v === "null" or $v === '') $v = "NULL";
