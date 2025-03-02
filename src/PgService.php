@@ -14,6 +14,7 @@ class PgService extends Services
     public $conRead = null;
     public $error = false;
     private $die = true; // die after query errors
+    public $lastInsert = [];
     private static $instances = [];
     public function __construct($conf = array())
     {
@@ -124,7 +125,6 @@ class PgService extends Services
         elseif ($currentType == 'read' and $this->conRead) $this->con = $this->conRead;
         else $this->connect($currentType);
     }
-
     public function query($query, $variables = array(), $cacheTimer = 0)
     {
         // CACHE FIRST
@@ -265,14 +265,14 @@ class PgService extends Services
         } catch (PDOException $e) {
             Xplend::err("Postgres", $e->getMessage());
         }
-
         try {
+            $data['id'] = @$this->con->lastInsertId();
+            $this->lastInsert = $data;
             return $this->con->lastInsertId();
         } catch (PDOException $e) {
             return false;
         }
     }
-
     public function update($table, $data = array(), $condition = array())
     {
         $this->getConnection('write');
@@ -281,7 +281,6 @@ class PgService extends Services
 
         foreach ($data as $k => $v) {
             if ($v === "NULL" or $v === "null") $v = "NULL";
-            elseif (is_numeric($v)) $v = "$v";
             elseif ($v === "") $v = "NULL";
             else {
                 $binds[$k] = $v;

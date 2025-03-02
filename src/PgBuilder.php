@@ -70,11 +70,14 @@ class PgBuilder extends Xplend
 
         foreach ($field as $k => $v) {
             $parts = explode(" ", $v);
+
+            // find field type
             $type_part = $parts[0];
             $type = explode("/", $type_part)[0];
-            $type_real = @$this->custom_fields[$type]['Type'];
-
-            if (!$type_real) {
+            $type_from_custom = @$this->custom_fields[$type]['Type'];
+            $type_real = '';
+            if ($type_from_custom) $type_real = $type_from_custom;
+            else {
                 $type_real = $type;
                 $this->custom_fields[$type_real] = [
                     'Type' => '',
@@ -84,12 +87,14 @@ class PgBuilder extends Xplend
                 ];
             }
 
+            // Field lenght limit
             $len = @explode("/", $type_part)[1];
             if ($len) {
                 $type_real = preg_replace('/\(\d+\)/', '', $type_real);
                 $type_real = "$type_real($len)";
             }
 
+            // Define null or not null
             if ($type === 'id' || strpos($type_real, 'SERIAL') !== false) {
                 $null = '';
             } else {
@@ -97,9 +102,13 @@ class PgBuilder extends Xplend
                 $null = ($req !== false) ? "NOT NULL" : "NULL";
             }
 
-            $uni = array_search('unique', $parts);
-            $key = ($uni !== false) ? 'UNI' : '';
+            // Define key
+            $key = '';
+            $key_from_custom = @$this->custom_fields[$type]['Key'];
+            if (array_search('unique', $parts) !== false) $key = 'UNI';
+            if ($key_from_custom) $key = $key_from_custom;
 
+            // Define indexes
             foreach ($parts as $part) {
                 if (strpos($part, 'index') !== false) {
                     $index_parts = explode("/", $part);
@@ -149,17 +158,13 @@ class PgBuilder extends Xplend
 
         foreach ($fields as $k => $v) {
             $type = strtoupper($v['Type']);
-            $null = ($v['Null'] === 'NOT NULL') ? "NOT NULL" : ($v['Null'] === '' ? '' : "NULL");
+            $null = ($v['Null'] === 'NOT NULL') ? "NOT NULL" : ($v['Null'] === '' ? '' : "");
             $extra = strtoupper(@$v['Extra']);
-
-            if (strpos($type, 'SERIAL') !== false) {
-                $null = '';
-            }
 
             $query .= $_comma . "\"$k\" $type $null $extra";
 
             if (@$v['Key'] === 'PRI') {
-                $query .= ", PRIMARY KEY (\"$k\")";
+                $query .= " PRIMARY KEY";
             }
 
             if (@$v['Key'] === 'UNI') {
@@ -174,6 +179,7 @@ class PgBuilder extends Xplend
         }
 
         $query .= PHP_EOL . ");";
+        $query = removeExtraSpaces($query);
         if (!$this->mute) Mason::say("→ $query", false, 'green');
         $this->queries[] = $query;
         $this->queries_mini[] = "CREATE TABLE \"$table\" ...";
@@ -258,6 +264,9 @@ class PgBuilder extends Xplend
             if (@$v['Key'] === 'UNI') {
                 $expected_unique_names[] = "{$table}_{$k}_unique";
                 $expected_indexes[] = "{$table}_{$k}_unique";
+            }
+            if (@$v['Key'] === 'PRI') {
+                $expected_indexes[] = "{$table}_pkey";
             }
         }
         // Drop columns not in new configuration
