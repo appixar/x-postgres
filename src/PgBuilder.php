@@ -180,7 +180,7 @@ class PgBuilder extends Xplend
 
         $query .= PHP_EOL . ");";
         $query = removeExtraSpaces($query);
-        if (!$this->mute) Mason::say("→ $query", false, 'green');
+        if (!$this->mute) Mason::say("→ $query", 'green');
         $this->queries[] = $query;
         $this->queries_mini[] = "CREATE TABLE \"$table\" ...";
         $this->queries_color[] = 'green';
@@ -191,7 +191,7 @@ class PgBuilder extends Xplend
             $this->queries[] = $query;
             $this->queries_mini[] = "ADD UNIQUE \"{$table}_{$unique_field}_unique\" ...";
             $this->queries_color[] = 'cyan';
-            if (!$this->mute) Mason::say("→ $query", false, 'cyan');
+            if (!$this->mute) Mason::say("→ $query", 'cyan');
             $this->actions++;
         }
 
@@ -200,7 +200,7 @@ class PgBuilder extends Xplend
             $this->queries[] = $query;
             $this->queries_mini[] = "ADD INDEX \"{$table}_{$index_field}_idx\" ...";
             $this->queries_color[] = 'cyan';
-            if (!$this->mute) Mason::say("→ $query", false, 'cyan');
+            if (!$this->mute) Mason::say("→ $query", 'cyan');
             $this->actions++;
         }
 
@@ -210,14 +210,14 @@ class PgBuilder extends Xplend
             $this->queries[] = $query;
             $this->queries_mini[] = "ADD INDEX \"{$table}_{$index_name}_idx\" ...";
             $this->queries_color[] = 'cyan';
-            if (!$this->mute) Mason::say("→ $query", false, 'cyan');
+            if (!$this->mute) Mason::say("→ $query", 'cyan');
             $this->actions++;
         }
     }
 
     private function updateTable($table, $schema, $field_curr, $pg)
     {
-        if (!$this->mute) Mason::say("∴ $table", true, 'blue');
+        if (!$this->mute) Mason::header("∴ $table", 'blue');
 
         $fields = $schema['fields'];
         $individual_indexes = $schema['individual_indexes'];
@@ -276,7 +276,7 @@ class PgBuilder extends Xplend
                 $this->queries[] = $query;
                 $this->queries_color[] = 'yellow';
                 $this->actions++;
-                if (!$this->mute) Mason::say("→ $query", false, 'yellow');
+                if (!$this->mute) Mason::say("→ $query", 'yellow');
             }
         }
 
@@ -287,7 +287,7 @@ class PgBuilder extends Xplend
                 $this->queries[] = $query;
                 $this->queries_color[] = 'yellow';
                 $this->actions++;
-                if (!$this->mute) Mason::say("→ $query", false, 'yellow');
+                if (!$this->mute) Mason::say("→ $query", 'yellow');
             }
         }
 
@@ -298,7 +298,7 @@ class PgBuilder extends Xplend
                 $this->queries[] = $query;
                 $this->queries_color[] = 'yellow';
                 $this->actions++;
-                if (!$this->mute) Mason::say("→ $query", false, 'yellow');
+                if (!$this->mute) Mason::say("→ $query", 'yellow');
             }
         }
 
@@ -309,7 +309,7 @@ class PgBuilder extends Xplend
                 $this->queries[] = $query;
                 $this->queries_color[] = 'cyan';
                 $this->actions++;
-                if (!$this->mute) Mason::say("→ $query", false, 'cyan');
+                if (!$this->mute) Mason::say("→ $query", 'cyan');
             }
         }
 
@@ -344,7 +344,7 @@ class PgBuilder extends Xplend
                 $this->queries[] = $query;
                 $this->queries_color[] = 'cyan';
                 $this->actions++;
-                if (!$this->mute) Mason::say("→ $query", false, 'cyan');
+                if (!$this->mute) Mason::say("→ $query", 'cyan');
             }
             // If the type is the same but the length differs, update the column type with the new length
             else if ($configLength !== null && $dbLength !== $configLength) {
@@ -352,7 +352,7 @@ class PgBuilder extends Xplend
                 $this->queries[] = $query;
                 $this->queries_color[] = 'cyan';
                 $this->actions++;
-                if (!$this->mute) Mason::say("→ $query", false, 'cyan');
+                if (!$this->mute) Mason::say("→ $query", 'cyan');
             }
         }
 
@@ -364,7 +364,7 @@ class PgBuilder extends Xplend
                 $this->queries[] = $query;
                 $this->queries_color[] = 'cyan';
                 $this->actions++;
-                if (!$this->mute) Mason::say("→ $query", false, 'cyan');
+                if (!$this->mute) Mason::say("→ $query", 'cyan');
             }
         }
 
@@ -377,7 +377,7 @@ class PgBuilder extends Xplend
                 $this->queries[] = $query;
                 $this->queries_color[] = 'cyan';
                 $this->actions++;
-                if (!$this->mute) Mason::say("→ $query", false, 'cyan');
+                if (!$this->mute) Mason::say("→ $query", 'cyan');
             }
         }
 
@@ -390,7 +390,7 @@ class PgBuilder extends Xplend
                     $this->queries[] = $query;
                     $this->queries_color[] = 'cyan';
                     $this->actions++;
-                    if (!$this->mute) Mason::say("→ $query", false, 'cyan');
+                    if (!$this->mute) Mason::say("→ $query", 'cyan');
                 }
             }
         }
@@ -398,9 +398,9 @@ class PgBuilder extends Xplend
 
     private function deleteTable($table, $pg)
     {
-        if (!$this->mute) Mason::say("∴ $table", true, 'blue');
+        if (!$this->mute) Mason::header("∴ $table", 'blue');
         $query = "DROP TABLE IF EXISTS \"$table\" CASCADE;";
-        if (!$this->mute) Mason::say("→ $query", false, 'yellow');
+        if (!$this->mute) Mason::say("→ $query", 'yellow');
         $this->queries[] = $query;
         $this->queries_color[] = 'yellow';
         $this->actions++;
@@ -414,7 +414,7 @@ class PgBuilder extends Xplend
         $this->queries_color[] = 'green';
         $this->actions++;
         $this->create_database_count++;
-        if (!$this->mute) Mason::say("→ $query", false, 'green');
+        if (!$this->mute) Mason::say("→ $query", 'green');
     }
 
     public function buildReverse()
@@ -448,8 +448,8 @@ class PgBuilder extends Xplend
         if (@$argx['--tenant']) $this->select_tenant = $argx['--tenant'];
 
         if (!@is_array($_APP['POSTGRES']['DB'])) {
-            Mason::say("Ops! config is missing.", false, "red");
-            Mason::say("Please, verify: modules/postgres/config/postgres.yml", false, "red");
+            Mason::say("Ops! config is missing.", "red");
+            Mason::say("Please, verify: modules/postgres/config/postgres.yml", "red");
             exit;
         }
 
@@ -463,7 +463,7 @@ class PgBuilder extends Xplend
                     continue;
                 }
             }
-            Mason::say("► PostgreSQL '$db_id' ...", true, 'cyan');
+            Mason::say("► PostgreSQL '$db_id' ...", 'cyan');
 
             if (@$db_conf['PATH']) {
                 if (!is_array($db_conf['PATH'])) $db_conf['PATH'] = [$db_conf['PATH']];
@@ -500,12 +500,12 @@ class PgBuilder extends Xplend
                     foreach ($table_files as $fn) {
                         $fp = "$path/$fn";
                         if (is_file($fp)) {
-                            if (!$this->mute) Mason::say("⍐ Processing: " . realpath($fp), false, 'magenta');
+                            if (!$this->mute) Mason::say("⍐ Processing: " . realpath($fp), 'magenta');
 
                             $data = @yaml_parse(file_get_contents($fp));
 
                             if (!is_array($data)) {
-                                if (!$this->mute) Mason::say("* Invalid file format. Ignored.", false, 'yellow');
+                                if (!$this->mute) Mason::say("* Invalid file format. Ignored.", 'yellow');
                                 goto nextFile;
                             }
 
@@ -553,7 +553,7 @@ class PgBuilder extends Xplend
                 Mason::say("→ Please, verify:");
                 for ($z = 0; $z < count($this->queries); $z++) {
                     $qr = @$this->queries_mini[$z] ? $this->queries_mini[$z] : $this->queries[$z];
-                    Mason::say("→ $qr", false, $this->queries_color[$z]);
+                    Mason::say("→ $qr", $this->queries_color[$z]);
                 }
                 echo PHP_EOL;
                 echo "Are you sure you want to do this? ☝" . PHP_EOL;
@@ -573,12 +573,12 @@ class PgBuilder extends Xplend
                 }
             }
 
-            Mason::say("❤ Finished $db_id. Changes: {$this->actions}", true, 'header');
+            Mason::header("❤ Finished $db_id. Changes: {$this->actions}");
             next_tenant:
         }
 
         if ($this->create_database_count > 0) {
-            Mason::say("Possible new databases: {$this->create_database_count}. Reloading...", true, 'cyan');
+            Mason::header("Possible new databases: {$this->create_database_count}. Reloading...", 'cyan');
             $this->create_database_count = 0;
             $this->up(['--mute' => true]);
         }

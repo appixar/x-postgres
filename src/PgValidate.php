@@ -22,7 +22,7 @@ class PgValidate extends Controllers
         $validatedData = $receivedData;
 
         // LOOP IN ALL DB FIELDS
-        $fields = PgService::getAllFields();
+        $fields = Database::getAllFields();
         foreach ($receivedData as $fieldName => $fieldValue) {
             // IS NOT DB FIELD
             if (!@$fields[$fieldName]) {
