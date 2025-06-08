@@ -215,9 +215,11 @@ class PgService extends Services
                 $parts = explode(" ", $fieldConf);
                 $fieldType = $parts[0];
                 if (in_array('generate', $parts)) {
-                    if (!function_exists('generate_' . $fieldType)) {
-                        Xplend::err('Postgres', "Generate function not found: generate_$fieldType()");
-                    } else {
+                    $generateFunctionName = '';
+                    if (function_exists('generate_' . $fieldType)) $generateFunctionName = 'generate_' . $fieldType;
+                    elseif (function_exists($fieldType . 'Generate')) $generateFunctionName = $fieldType . 'Generate';
+                    if (!$generateFunctionName) Xplend::err('Postgres', "Generate function not found: " . $fieldType . "Generate()");
+                    else {
                         $generateData = [
                             'table' => $table,
                             'data' => $data,
