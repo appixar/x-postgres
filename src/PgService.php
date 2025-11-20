@@ -116,7 +116,8 @@ class PgService extends Services
 
             #echo "nova conexao: $currentType" . PHP_EOL;
         } catch (PDOException $e) {
-            die("PostgreSQL Connection Error: " . $e->getMessage());
+            if ($this->die) Xplend::err("Postgres", $e->getMessage());
+            else throw new Exception($e->getMessage(), 0, $e);
         }
     }
     private function getConnection($currentType = 'read')
@@ -165,7 +166,8 @@ class PgService extends Services
             $res = $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (PDOException $e) {
             if (Xplend::isAPI()) Http::die(500, $e->getMessage());
-            else Xplend::err("Postgres", $e->getMessage());
+            if ($this->die) Xplend::err("Postgres", $e->getMessage());
+            else throw new Exception($e->getMessage(), 0, $e);
         }
 
         // SAVE IN CACHE
@@ -265,7 +267,8 @@ class PgService extends Services
                 return false;
             }
         } catch (PDOException $e) {
-            Xplend::err("Postgres", $e->getMessage());
+            if ($this->die) Xplend::err("Postgres", $e->getMessage());
+            else throw new Exception($e->getMessage(), 0, $e);
         }
         try {
             $data['id'] = @$this->con->lastInsertId();
@@ -317,7 +320,8 @@ class PgService extends Services
                 return false;
             }
         } catch (PDOException $e) {
-            Xplend::err("Postgres", $e->getMessage());
+            if ($this->die) Xplend::err("Postgres", $e->getMessage());
+            else throw new Exception($e->getMessage(), 0, $e);
         }
 
         return $stmt->rowCount();
