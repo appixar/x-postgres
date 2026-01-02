@@ -1,4 +1,5 @@
 <?php
+
 class PgBuilder extends Xplend
 {
     public $queries = array();
@@ -10,6 +11,7 @@ class PgBuilder extends Xplend
     public $select_database = '';
     public $select_tenant = '';
     private $actions = 0;
+
     private $postgresTypeDictionary = [
         'SERIAL'    => 'integer',
         'VARCHAR'   => 'character varying',
@@ -60,6 +62,205 @@ class PgBuilder extends Xplend
         return self::getInstance()->custom_fields;
     }
 
+    // ----------------------------
+    // Helpers de output/queue
+    // ----------------------------
+
+    private function headerTable($table)
+    {
+        if ($this->mute) return;
+        Mason::header("∴ $table", 'blue');
+    }
+
+    private function sayUpToDate($table)
+    {
+        if ($this->mute) return;
+        // Mensagem curta, abaixo do cabeçalho
+        Mason::say("✓ Table is up to date");
+    }
+
+    private function pushQuery($sql, $mini = null, $color = 'green')
+    {
+        $sql = removeExtraSpaces($sql);
+
+        $this->queries[] = $sql;
+
+        // Resumo final SEMPRE mini. Se não vier mini, gera um fallback.
+        if ($mini === null || trim($mini) === '') {
+            $mini = $this->miniFromSql($sql);
+        }
+
+        $this->queries_mini[]  = $mini;
+        $this->queries_color[] = $color;
+
+        $this->actions++;
+
+        if (!$this->mute) {
+            Mason::say("→ $sql", $color);
+        }
+    }
+
+    // Fallback simples: nunca deixa o resumo cair no SQL completo
+    private function miniFromSql($sql)
+    {
+        $s = trim(preg_replace('/\s+/', ' ', (string)$sql));
+
+        if (stripos($s, 'CREATE TABLE') === 0) {
+            if (preg_match('/CREATE TABLE\s+"([^"]+)"/i', $s, $m)) return "CREATE TABLE \"{$m[1]}\" ...";
+            return "CREATE TABLE ...";
+        }
+
+        if (stripos($s, 'ALTER TABLE') === 0) {
+            if (preg_match('/ALTER TABLE\s+"([^"]+)"/i', $s, $m)) return "ALTER TABLE \"{$m[1]}\" ...";
+            return "ALTER TABLE ...";
+        }
+
+        if (stripos($s, 'DROP TABLE') === 0) {
+            if (preg_match('/DROP TABLE IF EXISTS\s+"([^"]+)"/i', $s, $m)) return "DROP TABLE \"{$m[1]}\" ...";
+            return "DROP TABLE ...";
+        }
+
+        if (stripos($s, 'CREATE INDEX') === 0) {
+            if (preg_match('/CREATE INDEX\s+"([^"]+)"/i', $s, $m)) return "ADD INDEX \"{$m[1]}\" ...";
+            return "ADD INDEX ...";
+        }
+
+        if (stripos($s, 'DROP INDEX') === 0) {
+            if (preg_match('/DROP INDEX IF EXISTS\s+"([^"]+)"/i', $s, $m)) return "DROP INDEX \"{$m[1]}\" ...";
+            return "DROP INDEX ...";
+        }
+
+        // Genérico (limitado)
+        return substr($s, 0, 80) . (strlen($s) > 80 ? " ..." : "");
+    }
+
+    // ----------------------------
+    // DEFAULT: YAML -> SQL
+    // ----------------------------
+
+    // Converte o "default/" do yaml para SQL sem quebrar compatibilidade.
+    // Regras:
+    // - números e boolean: sem aspas
+    // - strings: com aspas simples
+    // - funções/expressões SQL: sem aspas se terminar com ")" OU for keyword (CURRENT_TIMESTAMP/DATE/TIME)
+    // - json/jsonb: se vier {} ou [] => faz cast ::jsonb/::json conforme tipo
+    private function normalizeDefaultSql($rawDefault, $typeRealUpper)
+    {
+        if ($rawDefault === null) return null;
+
+        $raw = trim((string)$rawDefault);
+        if ($raw === '') return null;
+
+        // Se vier "null" explícito, tratamos como "sem default" (não emite DEFAULT NULL).
+        if (strtolower($raw) === 'null') return null;
+
+        // Se já vier com "DEFAULT ..." (usuário avançado), aceita e remove o prefixo
+        if (stripos($raw, 'default ') === 0) {
+            $raw = trim(substr($raw, 7));
+        }
+
+        // Funções/expressões SQL simples (termina com ")") ou keywords SQL
+        $upperRaw = strtoupper($raw);
+        if (preg_match('/\)\s*$/', $raw) || in_array($upperRaw, ['CURRENT_TIMESTAMP', 'CURRENT_DATE', 'CURRENT_TIME'])) {
+            return $raw;
+        }
+
+        // Boolean
+        if (in_array(strtolower($raw), ['true', 'false'], true)) {
+            return strtoupper($raw);
+        }
+
+        // Numérico (int/float)
+        if (preg_match('/^-?\d+(\.\d+)?$/', $raw)) {
+            return $raw;
+        }
+
+        // JSON / JSONB
+        if (strpos($typeRealUpper, 'JSONB') !== false || strpos($typeRealUpper, 'JSON') !== false) {
+            // Se vier objeto/array, coloca aspas e faz cast.
+            $first = substr($raw, 0, 1);
+            if ($first === '{' || $first === '[') {
+                $escaped = str_replace("'", "''", $raw);
+                if (strpos($typeRealUpper, 'JSONB') !== false) return "'$escaped'::jsonb";
+                return "'$escaped'::json";
+            }
+            // Se já veio algo avançado (ex: '...'::jsonb), deixa passar
+            return $raw;
+        }
+
+        // UUID literal
+        if (preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $raw)) {
+            return "'" . strtolower($raw) . "'";
+        }
+
+        // Se já estiver entre aspas simples, respeita
+        if (preg_match("/^'(.*)'$/s", $raw)) {
+            return $raw;
+        }
+
+        // Se estiver entre aspas duplas, converte para aspas simples
+        if (preg_match('/^"(.*)"$/s', $raw, $m)) {
+            $raw = $m[1];
+        }
+
+        // Default string
+        $escaped = str_replace("'", "''", $raw);
+        return "'$escaped'";
+    }
+
+    private function buildDefaultClause($rawDefault, $typeRealUpper)
+    {
+        $sql = $this->normalizeDefaultSql($rawDefault, $typeRealUpper);
+        if ($sql === null) return '';
+        return "DEFAULT $sql";
+    }
+
+    // Normaliza column_default do Postgres só pra comparação (evita falso mismatch)
+    // Exemplos:
+    // - "'0'::integer" -> "0"
+    // - "0" -> "0"
+    // - "true::boolean" -> "true"
+    // - "now()" -> "now()"
+    // - "nextval('tbl_id_seq'::regclass)" -> "nextval('tbl_id_seq'::regclass)" (não mexe)
+    private function normalizeDbDefaultForCompare($dbDefault)
+    {
+        $d = trim((string)$dbDefault);
+        if ($d === '') return '';
+
+        $d = preg_replace('/\s+/', ' ', $d);
+
+        // não tenta normalizar nextval, pq é serial/sequence
+        if (stripos($d, 'nextval(') !== false) return $d;
+
+        // remove casts finais ::tipo (um ou mais)
+        // ex: "'0'::integer" / "true::boolean"
+        while (preg_match('/^(.*)::[a-zA-Z0-9_ ]+$/', $d, $m)) {
+            $d = trim($m[1]);
+        }
+
+        // remove parênteses externos simples
+        if (preg_match('/^\((.*)\)$/', $d, $m)) {
+            $d = trim($m[1]);
+        }
+
+        // remove aspas simples externas (se virar literal)
+        if (preg_match("/^'(.*)'$/s", $d, $m)) {
+            $d = $m[1];
+        }
+
+        // boolean pra minúsculo na comparação
+        if (in_array(strtolower($d), ['true', 'false'], true)) {
+            $d = strtolower($d);
+        }
+
+        // números ok
+        if (preg_match('/^-?\d+(\.\d+)?$/', $d)) {
+            return $d;
+        }
+
+        return $d;
+    }
+
     private function convertField($field)
     {
         $new_field = array();
@@ -92,6 +293,23 @@ class PgBuilder extends Xplend
             if ($len) {
                 $type_real = preg_replace('/\(\d+\)/', '', $type_real);
                 $type_real = "$type_real($len)";
+            }
+
+            // Define default vindo do yaml: default/xxx
+            $default_raw = null;
+            foreach ($parts as $part) {
+                if (strpos($part, 'default/') === 0) {
+                    $default_raw = substr($part, strlen('default/'));
+                    break;
+                }
+            }
+
+            // Fallback: default vindo de custom_fields (mantém compatibilidade)
+            if ($default_raw === null) {
+                $default_from_custom = @$this->custom_fields[$type]['Default'];
+                if ($default_from_custom !== '' && $default_from_custom !== null) {
+                    $default_raw = $default_from_custom;
+                }
             }
 
             // Define null or not null
@@ -131,6 +349,7 @@ class PgBuilder extends Xplend
                 'Type' => strtoupper($type_real),
                 'Null' => $null,
                 'Key' => $key,
+                'Default' => $default_raw,
                 'Extra' => @strtoupper(@$this->custom_fields[$type]['Extra']),
             );
         }
@@ -145,7 +364,8 @@ class PgBuilder extends Xplend
 
     private function createTable($table, $schema, $pg)
     {
-        if (!$this->mute) Mason::say("∴ $table", true, 'blue');
+        $this->headerTable($table);
+        $actions_before = $this->actions;
 
         $_comma = '';
         $query = "CREATE TABLE \"$table\" (" . PHP_EOL;
@@ -161,7 +381,13 @@ class PgBuilder extends Xplend
             $null = ($v['Null'] === 'NOT NULL') ? "NOT NULL" : ($v['Null'] === '' ? '' : "");
             $extra = strtoupper(@$v['Extra']);
 
-            $query .= $_comma . "\"$k\" $type $null $extra";
+            // SERIAL já cria default nextval automaticamente no Postgres, não força DEFAULT aqui.
+            $default = '';
+            if (strpos($type, 'SERIAL') === false) {
+                $default = $this->buildDefaultClause(@$v['Default'], $type);
+            }
+
+            $query .= $_comma . "\"$k\" $type $null $default $extra";
 
             if (@$v['Key'] === 'PRI') {
                 $query .= " PRIMARY KEY";
@@ -179,45 +405,35 @@ class PgBuilder extends Xplend
         }
 
         $query .= PHP_EOL . ");";
-        $query = removeExtraSpaces($query);
-        if (!$this->mute) Mason::say("→ $query", 'green');
-        $this->queries[] = $query;
-        $this->queries_mini[] = "CREATE TABLE \"$table\" ...";
-        $this->queries_color[] = 'green';
-        $this->actions++;
+
+        $this->pushQuery($query, "CREATE TABLE \"$table\" ...", 'green');
 
         foreach ($unique_fields as $unique_field) {
-            $query = "ALTER TABLE \"$table\" ADD CONSTRAINT \"{$table}_{$unique_field}_unique\" UNIQUE (\"$unique_field\");";
-            $this->queries[] = $query;
-            $this->queries_mini[] = "ADD UNIQUE \"{$table}_{$unique_field}_unique\" ...";
-            $this->queries_color[] = 'cyan';
-            if (!$this->mute) Mason::say("→ $query", 'cyan');
-            $this->actions++;
+            $q = "ALTER TABLE \"$table\" ADD CONSTRAINT \"{$table}_{$unique_field}_unique\" UNIQUE (\"$unique_field\");";
+            $this->pushQuery($q, "ADD UNIQUE \"{$table}_{$unique_field}_unique\" ...", 'cyan');
         }
 
         foreach ($index_fields as $index_field) {
-            $query = "CREATE INDEX \"{$table}_{$index_field}_idx\" ON \"$table\" (\"$index_field\");";
-            $this->queries[] = $query;
-            $this->queries_mini[] = "ADD INDEX \"{$table}_{$index_field}_idx\" ...";
-            $this->queries_color[] = 'cyan';
-            if (!$this->mute) Mason::say("→ $query", 'cyan');
-            $this->actions++;
+            $q = "CREATE INDEX CONCURRENTLY \"{$table}_{$index_field}_idx\" ON \"$table\" (\"$index_field\");";
+            $this->pushQuery($q, "ADD INDEX \"{$table}_{$index_field}_idx\" ...", 'cyan');
         }
 
         foreach ($composite_indexes as $index_name => $columns) {
             $columns_str = implode('", "', $columns);
-            $query = "CREATE INDEX \"{$table}_{$index_name}_idx\" ON \"$table\" (\"$columns_str\");";
-            $this->queries[] = $query;
-            $this->queries_mini[] = "ADD INDEX \"{$table}_{$index_name}_idx\" ...";
-            $this->queries_color[] = 'cyan';
-            if (!$this->mute) Mason::say("→ $query", 'cyan');
-            $this->actions++;
+            $q = "CREATE INDEX CONCURRENTLY \"{$table}_{$index_name}_idx\" ON \"$table\" (\"$columns_str\");";
+            $this->pushQuery($q, "ADD INDEX \"{$table}_{$index_name}_idx\" ...", 'cyan');
+        }
+
+        // Se algum dia você decidir “pular create” por alguma regra, evita ficar mudo.
+        if ($this->actions === $actions_before) {
+            $this->sayUpToDate($table);
         }
     }
 
     private function updateTable($table, $schema, $field_curr, $pg)
     {
-        if (!$this->mute) Mason::header("∴ $table", 'blue');
+        $this->headerTable($table);
+        $actions_before = $this->actions;
 
         $fields = $schema['fields'];
         $individual_indexes = $schema['individual_indexes'];
@@ -269,51 +485,47 @@ class PgBuilder extends Xplend
                 $expected_indexes[] = "{$table}_pkey";
             }
         }
+
         // Drop columns not in new configuration
         foreach ($field_curr as $column => $data) {
             if (!isset($fields[$column])) {
-                $query = "ALTER TABLE \"$table\" DROP COLUMN \"$column\";";
-                $this->queries[] = $query;
-                $this->queries_color[] = 'yellow';
-                $this->actions++;
-                if (!$this->mute) Mason::say("→ $query", 'yellow');
+                $q = "ALTER TABLE \"$table\" DROP COLUMN \"$column\";";
+                $this->pushQuery($q, "DROP COLUMN \"$table\".\"$column\" ...", 'yellow');
             }
         }
 
         // Remove UNIQUE constraints not in configuration
         foreach ($existing_unique_names as $unique_name) {
             if (!in_array($unique_name, $expected_unique_names)) {
-                $query = "ALTER TABLE \"$table\" DROP CONSTRAINT \"$unique_name\";";
-                $this->queries[] = $query;
-                $this->queries_color[] = 'yellow';
-                $this->actions++;
-                if (!$this->mute) Mason::say("→ $query", 'yellow');
+                $q = "ALTER TABLE \"$table\" DROP CONSTRAINT \"$unique_name\";";
+                $this->pushQuery($q, "DROP CONSTRAINT \"$unique_name\" ...", 'yellow');
             }
         }
 
         // Remove indexes not in configuration
         foreach ($existing_index_names as $index_name) {
             if (!in_array($index_name, $expected_indexes)) {
-                $query = "DROP INDEX IF EXISTS \"$index_name\";";
-                $this->queries[] = $query;
-                $this->queries_color[] = 'yellow';
-                $this->actions++;
-                if (!$this->mute) Mason::say("→ $query", 'yellow');
+                $q = "DROP INDEX IF EXISTS \"$index_name\";";
+                $this->pushQuery($q, "DROP INDEX \"$index_name\" ...", 'yellow');
             }
         }
 
         // Add new columns
         foreach ($fields as $k => $v) {
             if (!isset($field_curr[$k])) {
-                $query = "ALTER TABLE \"$table\" ADD COLUMN \"$k\" " . strtoupper($v['Type']) . " " . $v['Null'] . " " . $v['Extra'] . ";";
-                $this->queries[] = $query;
-                $this->queries_color[] = 'cyan';
-                $this->actions++;
-                if (!$this->mute) Mason::say("→ $query", 'cyan');
+                $typeUpper = strtoupper($v['Type']);
+
+                // SERIAL já cria default nextval automaticamente no Postgres, não força DEFAULT aqui.
+                $default = '';
+                if (strpos($typeUpper, 'SERIAL') === false) {
+                    $default = $this->buildDefaultClause(@$v['Default'], $typeUpper);
+                }
+
+                $q = "ALTER TABLE \"$table\" ADD COLUMN \"$k\" " . $typeUpper . " " . $v['Null'] . " $default " . $v['Extra'] . ";";
+                $this->pushQuery($q, "ADD COLUMN \"$table\".\"$k\" ...", 'cyan');
             }
         }
 
-        // Update existing columns if field length differs
         // Update existing columns if field type or length differs
         foreach ($fields as $k => $v) {
             if (!isset($field_curr[$k])) continue;
@@ -340,19 +552,53 @@ class PgBuilder extends Xplend
 
             // If the base type is different, update with the new type and length (if provided)
             if ($mappedConfigType !== $dbType) {
-                $query = "ALTER TABLE \"$table\" ALTER COLUMN \"$k\" TYPE " . strtoupper($v['Type']) . ";";
-                $this->queries[] = $query;
-                $this->queries_color[] = 'cyan';
-                $this->actions++;
-                if (!$this->mute) Mason::say("→ $query", 'cyan');
+                $q = "ALTER TABLE \"$table\" ALTER COLUMN \"$k\" TYPE " . strtoupper($v['Type']) . ";";
+                $this->pushQuery($q, "ALTER TYPE \"$table\".\"$k\" -> " . strtoupper($v['Type']) . " ...", 'cyan');
             }
             // If the type is the same but the length differs, update the column type with the new length
             else if ($configLength !== null && $dbLength !== $configLength) {
-                $query = "ALTER TABLE \"$table\" ALTER COLUMN \"$k\" TYPE " . strtoupper($v['Type']) . ";";
-                $this->queries[] = $query;
-                $this->queries_color[] = 'cyan';
-                $this->actions++;
-                if (!$this->mute) Mason::say("→ $query", 'cyan');
+                $q = "ALTER TABLE \"$table\" ALTER COLUMN \"$k\" TYPE " . strtoupper($v['Type']) . ";";
+                $this->pushQuery($q, "ALTER TYPE \"$table\".\"$k\" -> " . strtoupper($v['Type']) . " ...", 'cyan');
+            }
+        }
+
+        // Atualiza DEFAULT (SET/DROP)
+        foreach ($fields as $k => $v) {
+            if (!isset($field_curr[$k])) continue;
+
+            $typeUpper = strtoupper($v['Type']);
+            $dbDefaultRaw = isset($field_curr[$k]['column_default']) ? (string)$field_curr[$k]['column_default'] : '';
+
+            // 1) NUNCA mexer em default de SERIAL (id custom field) => evita DROP do nextval()
+            if (strpos($typeUpper, 'SERIAL') !== false) {
+                continue;
+            }
+
+            // 2) Se for PRI e o banco tem nextval(...), também não mexe (cobre casos de integer + sequence legado)
+            if (@$v['Key'] === 'PRI' && stripos($dbDefaultRaw, 'nextval(') !== false) {
+                continue;
+            }
+
+            $configDefaultClause = $this->buildDefaultClause(@$v['Default'], $typeUpper);
+            $configDefaultSql = '';
+            if ($configDefaultClause) {
+                $configDefaultSql = trim(substr($configDefaultClause, strlen('DEFAULT ')));
+            }
+
+            $dbDefaultNorm  = $this->normalizeDbDefaultForCompare($dbDefaultRaw);
+            $cfgDefaultNorm = $this->normalizeDbDefaultForCompare($configDefaultSql);
+
+            // Se no YAML não tem default e no banco tem, remove
+            if ($cfgDefaultNorm === '' && $dbDefaultNorm !== '') {
+                $q = "ALTER TABLE \"$table\" ALTER COLUMN \"$k\" DROP DEFAULT;";
+                $this->pushQuery($q, "DROP DEFAULT \"$table\".\"$k\" ...", 'cyan');
+                continue;
+            }
+
+            // Se no YAML tem default e no banco é diferente, seta
+            if ($cfgDefaultNorm !== '' && $dbDefaultNorm !== $cfgDefaultNorm) {
+                $q = "ALTER TABLE \"$table\" ALTER COLUMN \"$k\" SET DEFAULT $configDefaultSql;";
+                $this->pushQuery($q, "SET DEFAULT \"$table\".\"$k\" ...", 'cyan');
             }
         }
 
@@ -360,11 +606,8 @@ class PgBuilder extends Xplend
         foreach ($individual_indexes as $index_field) {
             $index_name = "{$table}_{$index_field}_idx";
             if (!in_array($index_name, $existing_index_names)) {
-                $query = "CREATE INDEX \"$index_name\" ON \"$table\" (\"$index_field\");";
-                $this->queries[] = $query;
-                $this->queries_color[] = 'cyan';
-                $this->actions++;
-                if (!$this->mute) Mason::say("→ $query", 'cyan');
+                $q = "CREATE INDEX CONCURRENTLY \"$index_name\" ON \"$table\" (\"$index_field\");";
+                $this->pushQuery($q, "ADD INDEX \"$index_name\" ...", 'cyan');
             }
         }
 
@@ -373,11 +616,8 @@ class PgBuilder extends Xplend
             $index_name_full = "{$table}_{$index_name}_idx";
             if (!in_array($index_name_full, $existing_index_names)) {
                 $columns_str = implode('", "', $columns);
-                $query = "CREATE INDEX \"$index_name_full\" ON \"$table\" (\"$columns_str\");";
-                $this->queries[] = $query;
-                $this->queries_color[] = 'cyan';
-                $this->actions++;
-                if (!$this->mute) Mason::say("→ $query", 'cyan');
+                $q = "CREATE INDEX CONCURRENTLY \"$index_name_full\" ON \"$table\" (\"$columns_str\");";
+                $this->pushQuery($q, "ADD INDEX \"$index_name_full\" ...", 'cyan');
             }
         }
 
@@ -386,35 +626,31 @@ class PgBuilder extends Xplend
             if (@$v['Key'] === 'UNI') {
                 $unique_name = "{$table}_{$k}_unique";
                 if (!in_array($unique_name, $existing_unique_names)) {
-                    $query = "ALTER TABLE \"$table\" ADD CONSTRAINT \"$unique_name\" UNIQUE (\"$k\");";
-                    $this->queries[] = $query;
-                    $this->queries_color[] = 'cyan';
-                    $this->actions++;
-                    if (!$this->mute) Mason::say("→ $query", 'cyan');
+                    $q = "ALTER TABLE \"$table\" ADD CONSTRAINT \"$unique_name\" UNIQUE (\"$k\");";
+                    $this->pushQuery($q, "ADD UNIQUE \"$unique_name\" ...", 'cyan');
                 }
             }
+        }
+
+        // Se não houve nenhuma ação para essa tabela, avisa abaixo do cabeçalho
+        if ($this->actions === $actions_before) {
+            $this->sayUpToDate($table);
         }
     }
 
     private function deleteTable($table, $pg)
     {
-        if (!$this->mute) Mason::header("∴ $table", 'blue');
-        $query = "DROP TABLE IF EXISTS \"$table\" CASCADE;";
-        if (!$this->mute) Mason::say("→ $query", 'yellow');
-        $this->queries[] = $query;
-        $this->queries_color[] = 'yellow';
-        $this->actions++;
+        $this->headerTable($table);
+
+        $q = "DROP TABLE IF EXISTS \"$table\" CASCADE;";
+        $this->pushQuery($q, "DROP TABLE \"$table\" ...", 'yellow');
     }
 
     private function createDatabase($name, $pg)
     {
-        $query = "CREATE DATABASE \"$name\" ENCODING 'UTF8';";
-        $this->queries[] = $query;
-        $this->queries_mini[] = "CREATE DATABASE \"$name\"";
-        $this->queries_color[] = 'green';
-        $this->actions++;
+        $q = "CREATE DATABASE \"$name\" ENCODING 'UTF8';";
+        $this->pushQuery($q, "CREATE DATABASE \"$name\" ...", 'green');
         $this->create_database_count++;
-        if (!$this->mute) Mason::say("→ $query", 'green');
     }
 
     public function buildReverse()
@@ -463,6 +699,7 @@ class PgBuilder extends Xplend
                     continue;
                 }
             }
+
             Mason::say("► PostgreSQL '$db_id' ...", 'cyan');
 
             if (@$db_conf['PATH']) {
@@ -500,12 +737,14 @@ class PgBuilder extends Xplend
                     foreach ($table_files as $fn) {
                         $fp = "$path/$fn";
                         if (is_file($fp)) {
-                            if (!$this->mute) Mason::say("⍐ Processing: " . realpath($fp), 'magenta');
+
+                            // Importante: primeiro exibe o arquivo, depois as execuções dele
+                            if (!$this->mute) Mason::say("❍ Processing: " . realpath($fp), 'magenta');
 
                             $data = @yaml_parse(file_get_contents($fp));
 
                             if (!is_array($data)) {
-                                if (!$this->mute) Mason::say("* Invalid file format. Ignored.", 'yellow');
+                                if (!$this->mute) Mason::say("⚠ Invalid file format. Ignored.", 'yellow');
                                 goto nextFile;
                             }
 
@@ -524,19 +763,25 @@ class PgBuilder extends Xplend
 
                                 $field_curr = array();
                                 if (in_array($table_name, $tables_real)) {
-                                    // Note the inclusion of character_maximum_length for field length comparison
-                                    $r = $pg->query("SELECT column_name, data_type, is_nullable, character_maximum_length FROM information_schema.columns WHERE table_name = '$table_name'");
+                                    // inclui column_default (necessário pra sync de DEFAULT)
+                                    $r = $pg->query("SELECT column_name, data_type, is_nullable, character_maximum_length, column_default FROM information_schema.columns WHERE table_name = '$table_name'");
                                     if ($r[0]) {
                                         for ($x = 0; $x < count($r); $x++) {
                                             $field_curr[$r[$x]['column_name']] = $r[$x];
                                         }
                                         $this->updateTable($table_name, $field, $field_curr, $pg);
+                                    } else {
+                                        // Se por algum motivo não conseguiu ler colunas, ainda assim mantém padrão visual
+                                        $this->headerTable($table_name);
+                                        $this->sayUpToDate($table_name);
                                     }
                                 } else {
                                     $this->createTable($table_name, $field, $pg);
                                 }
+
                                 nextTable:
                             }
+
                             nextFile:
                         }
                     }
@@ -551,18 +796,24 @@ class PgBuilder extends Xplend
             if (!empty($this->queries)) {
                 Mason::say("→ {$this->actions} requested actions for: $db_id");
                 Mason::say("→ Please, verify:");
+
+                // No resumo final: SEMPRE mini (nunca comando completo)
                 for ($z = 0; $z < count($this->queries); $z++) {
-                    $qr = @$this->queries_mini[$z] ? $this->queries_mini[$z] : $this->queries[$z];
-                    Mason::say("→ $qr", $this->queries_color[$z]);
+                    $qr = $this->queries_mini[$z] ?? $this->miniFromSql($this->queries[$z]);
+                    $color = $this->queries_color[$z] ?? 'cyan';
+                    Mason::say("→ $qr", $color);
                 }
+
                 echo PHP_EOL;
                 echo "Are you sure you want to do this? ☝" . PHP_EOL;
                 echo "0: No" . PHP_EOL;
                 echo "1: Yes" . PHP_EOL;
                 echo "Choose an option: ";
+
                 $handle = fopen("php://stdin", "r");
                 $line = fgets($handle);
                 fclose($handle);
+
                 if (trim($line) == 0) {
                     echo "Aborting!" . PHP_EOL;
                     goto next_tenant;
