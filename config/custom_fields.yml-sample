@@ -31,7 +31,7 @@ POSTGRES:
       Key:
       Extra:
     "text":
-      Type: text // text no PostgreSQL
+      Type: text 
       "Null": YES
       Default:
       Key:
@@ -77,4 +77,16 @@ POSTGRES:
       "Null": YES
       Default:
       Key:
+      Extra:
+    "now":
+      Type: timestamp
+      "Null": YES
+      Default: now()
+      Key:
+      Extra:
+    "pid":
+      Type: varchar(12)
+      "Null": NO
+      Default: '"left"(md5((random())::text), 12)'
+      Key: UNI
       Extra:

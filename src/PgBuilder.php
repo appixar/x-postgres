@@ -13,24 +13,24 @@ class PgBuilder extends Xplend
     private $actions = 0;
 
     private $postgresTypeDictionary = [
-        'SERIAL'    => 'integer',
-        'VARCHAR'   => 'character varying',
-        'INT'       => 'integer',
-        'INTEGER'   => 'integer',
-        'TEXT'      => 'text',
+        'SERIAL' => 'integer',
+        'VARCHAR' => 'character varying',
+        'INT' => 'integer',
+        'INTEGER' => 'integer',
+        'TEXT' => 'text',
         'TIMESTAMP' => 'timestamp without time zone',
-        'DATE'      => 'date',
-        'TIME'      => 'time without time zone',
-        'BOOLEAN'   => 'boolean',
-        'SMALLINT'  => 'smallint',
-        'BIGINT'    => 'bigint',
-        'REAL'      => 'real',
-        'DOUBLE'    => 'double precision',
-        'NUMERIC'   => 'numeric',
-        'DECIMAL'   => 'numeric',
-        'JSON'      => 'json',
-        'JSONB'     => 'jsonb',
-        'UUID'      => 'uuid',
+        'DATE' => 'date',
+        'TIME' => 'time without time zone',
+        'BOOLEAN' => 'boolean',
+        'SMALLINT' => 'smallint',
+        'BIGINT' => 'bigint',
+        'REAL' => 'real',
+        'DOUBLE' => 'double precision',
+        'NUMERIC' => 'numeric',
+        'DECIMAL' => 'numeric',
+        'JSON' => 'json',
+        'JSONB' => 'jsonb',
+        'UUID' => 'uuid',
     ];
 
     // Custom fields
@@ -68,13 +68,15 @@ class PgBuilder extends Xplend
 
     private function headerTable($table)
     {
-        if ($this->mute) return;
+        if ($this->mute)
+            return;
         Mason::header("∴ $table", 'blue');
     }
 
     private function sayUpToDate($table)
     {
-        if ($this->mute) return;
+        if ($this->mute)
+            return;
         // Mensagem curta, abaixo do cabeçalho
         Mason::say("✓ Table is up to date");
     }
@@ -90,7 +92,7 @@ class PgBuilder extends Xplend
             $mini = $this->miniFromSql($sql);
         }
 
-        $this->queries_mini[]  = $mini;
+        $this->queries_mini[] = $mini;
         $this->queries_color[] = $color;
 
         $this->actions++;
@@ -103,30 +105,35 @@ class PgBuilder extends Xplend
     // Fallback simples: nunca deixa o resumo cair no SQL completo
     private function miniFromSql($sql)
     {
-        $s = trim(preg_replace('/\s+/', ' ', (string)$sql));
+        $s = trim(preg_replace('/\s+/', ' ', (string) $sql));
 
         if (stripos($s, 'CREATE TABLE') === 0) {
-            if (preg_match('/CREATE TABLE\s+"([^"]+)"/i', $s, $m)) return "CREATE TABLE \"{$m[1]}\" ...";
+            if (preg_match('/CREATE TABLE\s+"([^"]+)"/i', $s, $m))
+                return "CREATE TABLE \"{$m[1]}\" ...";
             return "CREATE TABLE ...";
         }
 
         if (stripos($s, 'ALTER TABLE') === 0) {
-            if (preg_match('/ALTER TABLE\s+"([^"]+)"/i', $s, $m)) return "ALTER TABLE \"{$m[1]}\" ...";
+            if (preg_match('/ALTER TABLE\s+"([^"]+)"/i', $s, $m))
+                return "ALTER TABLE \"{$m[1]}\" ...";
             return "ALTER TABLE ...";
         }
 
         if (stripos($s, 'DROP TABLE') === 0) {
-            if (preg_match('/DROP TABLE IF EXISTS\s+"([^"]+)"/i', $s, $m)) return "DROP TABLE \"{$m[1]}\" ...";
+            if (preg_match('/DROP TABLE IF EXISTS\s+"([^"]+)"/i', $s, $m))
+                return "DROP TABLE \"{$m[1]}\" ...";
             return "DROP TABLE ...";
         }
 
         if (stripos($s, 'CREATE INDEX') === 0) {
-            if (preg_match('/CREATE INDEX\s+"([^"]+)"/i', $s, $m)) return "ADD INDEX \"{$m[1]}\" ...";
+            if (preg_match('/CREATE INDEX\s+"([^"]+)"/i', $s, $m))
+                return "ADD INDEX \"{$m[1]}\" ...";
             return "ADD INDEX ...";
         }
 
         if (stripos($s, 'DROP INDEX') === 0) {
-            if (preg_match('/DROP INDEX IF EXISTS\s+"([^"]+)"/i', $s, $m)) return "DROP INDEX \"{$m[1]}\" ...";
+            if (preg_match('/DROP INDEX IF EXISTS\s+"([^"]+)"/i', $s, $m))
+                return "DROP INDEX \"{$m[1]}\" ...";
             return "DROP INDEX ...";
         }
 
@@ -146,13 +153,16 @@ class PgBuilder extends Xplend
     // - json/jsonb: se vier {} ou [] => faz cast ::jsonb/::json conforme tipo
     private function normalizeDefaultSql($rawDefault, $typeRealUpper)
     {
-        if ($rawDefault === null) return null;
+        if ($rawDefault === null)
+            return null;
 
-        $raw = trim((string)$rawDefault);
-        if ($raw === '') return null;
+        $raw = trim((string) $rawDefault);
+        if ($raw === '')
+            return null;
 
         // Se vier "null" explícito, tratamos como "sem default" (não emite DEFAULT NULL).
-        if (strtolower($raw) === 'null') return null;
+        if (strtolower($raw) === 'null')
+            return null;
 
         // Se já vier com "DEFAULT ..." (usuário avançado), aceita e remove o prefixo
         if (stripos($raw, 'default ') === 0) {
@@ -181,7 +191,8 @@ class PgBuilder extends Xplend
             $first = substr($raw, 0, 1);
             if ($first === '{' || $first === '[') {
                 $escaped = str_replace("'", "''", $raw);
-                if (strpos($typeRealUpper, 'JSONB') !== false) return "'$escaped'::jsonb";
+                if (strpos($typeRealUpper, 'JSONB') !== false)
+                    return "'$escaped'::jsonb";
                 return "'$escaped'::json";
             }
             // Se já veio algo avançado (ex: '...'::jsonb), deixa passar
@@ -211,7 +222,8 @@ class PgBuilder extends Xplend
     private function buildDefaultClause($rawDefault, $typeRealUpper)
     {
         $sql = $this->normalizeDefaultSql($rawDefault, $typeRealUpper);
-        if ($sql === null) return '';
+        if ($sql === null)
+            return '';
         return "DEFAULT $sql";
     }
 
@@ -224,13 +236,15 @@ class PgBuilder extends Xplend
     // - "nextval('tbl_id_seq'::regclass)" -> "nextval('tbl_id_seq'::regclass)" (não mexe)
     private function normalizeDbDefaultForCompare($dbDefault)
     {
-        $d = trim((string)$dbDefault);
-        if ($d === '') return '';
+        $d = trim((string) $dbDefault);
+        if ($d === '')
+            return '';
 
         $d = preg_replace('/\s+/', ' ', $d);
 
         // não tenta normalizar nextval, pq é serial/sequence
-        if (stripos($d, 'nextval(') !== false) return $d;
+        if (stripos($d, 'nextval(') !== false)
+            return $d;
 
         // remove casts finais ::tipo (um ou mais)
         // ex: "'0'::integer" / "true::boolean"
@@ -266,8 +280,10 @@ class PgBuilder extends Xplend
         $new_field = array();
         $individual_indexes = [];
         $composite_indexes = [];
+        $composite_unique_indexes = [];
 
-        if (!is_array($field)) goto convertFieldEnd;
+        if (!is_array($field))
+            goto convertFieldEnd;
 
         foreach ($field as $k => $v) {
             $parts = explode(" ", $v);
@@ -277,7 +293,8 @@ class PgBuilder extends Xplend
             $type = explode("/", $type_part)[0];
             $type_from_custom = @$this->custom_fields[$type]['Type'];
             $type_real = '';
-            if ($type_from_custom) $type_real = $type_from_custom;
+            if ($type_from_custom)
+                $type_real = $type_from_custom;
             else {
                 $type_real = $type;
                 $this->custom_fields[$type_real] = [
@@ -323,12 +340,16 @@ class PgBuilder extends Xplend
             // Define key
             $key = '';
             $key_from_custom = @$this->custom_fields[$type]['Key'];
-            if (array_search('unique', $parts) !== false) $key = 'UNI';
-            if ($key_from_custom) $key = $key_from_custom;
+            // unique simples (sem /) = constraint individual
+            if (array_search('unique', $parts) !== false)
+                $key = 'UNI';
+            if ($key_from_custom)
+                $key = $key_from_custom;
 
-            // Define indexes
+            // Define indexes and composite unique indexes
             foreach ($parts as $part) {
-                if (strpos($part, 'index') !== false) {
+                // index ou index/nome
+                if (strpos($part, 'index') === 0) {
                     $index_parts = explode("/", $part);
                     if (isset($index_parts[1])) {
                         $index_names = explode(",", $index_parts[1]);
@@ -340,6 +361,19 @@ class PgBuilder extends Xplend
                         }
                     } else {
                         $individual_indexes[] = $k;
+                    }
+                }
+                // unique/nome = composite unique index
+                if (strpos($part, 'unique/') === 0) {
+                    $unique_parts = explode("/", $part);
+                    if (isset($unique_parts[1])) {
+                        $unique_names = explode(",", $unique_parts[1]);
+                        foreach ($unique_names as $unique_name) {
+                            if (!isset($composite_unique_indexes[$unique_name])) {
+                                $composite_unique_indexes[$unique_name] = [];
+                            }
+                            $composite_unique_indexes[$unique_name][] = $k;
+                        }
                     }
                 }
             }
@@ -358,7 +392,8 @@ class PgBuilder extends Xplend
         return [
             'fields' => $new_field,
             'individual_indexes' => array_unique($individual_indexes),
-            'composite_indexes' => $composite_indexes
+            'composite_indexes' => $composite_indexes,
+            'composite_unique_indexes' => $composite_unique_indexes
         ];
     }
 
@@ -424,6 +459,15 @@ class PgBuilder extends Xplend
             $this->pushQuery($q, "ADD INDEX \"{$table}_{$index_name}_idx\" ...", 'cyan');
         }
 
+
+        // Composite unique indexes (unique/nome_grupo)
+        $composite_unique_indexes = $schema['composite_unique_indexes'] ?? [];
+        foreach ($composite_unique_indexes as $index_name => $columns) {
+            $columns_str = implode('", "', $columns);
+            $q = "CREATE UNIQUE INDEX CONCURRENTLY \"{$table}_{$index_name}_unique_idx\" ON \"$table\" (\"$columns_str\");";
+            $this->pushQuery($q, "ADD UNIQUE INDEX \"{$table}_{$index_name}_unique_idx\" ...", 'cyan');
+        }
+
         // Se algum dia você decidir “pular create” por alguma regra, evita ficar mudo.
         if ($this->actions === $actions_before) {
             $this->sayUpToDate($table);
@@ -438,6 +482,7 @@ class PgBuilder extends Xplend
         $fields = $schema['fields'];
         $individual_indexes = $schema['individual_indexes'];
         $composite_indexes = $schema['composite_indexes'];
+        $composite_unique_indexes = $schema['composite_unique_indexes'] ?? [];
 
         // Fetch existing indexes
         $existing_indexes = $pg->query("
@@ -474,6 +519,11 @@ class PgBuilder extends Xplend
 
         foreach ($composite_indexes as $index_name => $columns) {
             $expected_indexes[] = "{$table}_{$index_name}_idx";
+        }
+
+        // Composite unique indexes (unique/nome_grupo)
+        foreach ($composite_unique_indexes as $index_name => $columns) {
+            $expected_indexes[] = "{$table}_{$index_name}_unique_idx";
         }
 
         foreach ($fields as $k => $v) {
@@ -528,15 +578,16 @@ class PgBuilder extends Xplend
 
         // Update existing columns if field type or length differs
         foreach ($fields as $k => $v) {
-            if (!isset($field_curr[$k])) continue;
+            if (!isset($field_curr[$k]))
+                continue;
 
             // Extract configured base type and length (if provided)
             if (preg_match('/^(\w+)(?:\((\d+)\))?$/', $v['Type'], $matches)) {
                 $configBaseType = strtoupper($matches[1]);
-                $configLength   = isset($matches[2]) ? (int)$matches[2] : null;
+                $configLength = isset($matches[2]) ? (int) $matches[2] : null;
             } else {
                 $configBaseType = @explode("(", strtoupper($v['Type']))[0];
-                $configLength   = null;
+                $configLength = null;
             }
 
             // Map the config base type using the dictionary
@@ -547,8 +598,8 @@ class PgBuilder extends Xplend
             }
 
             // Get the current database field type and length
-            $dbType   = strtolower($field_curr[$k]['data_type']);
-            $dbLength = isset($field_curr[$k]['character_maximum_length']) ? (int)$field_curr[$k]['character_maximum_length'] : null;
+            $dbType = strtolower($field_curr[$k]['data_type']);
+            $dbLength = isset($field_curr[$k]['character_maximum_length']) ? (int) $field_curr[$k]['character_maximum_length'] : null;
 
             // If the base type is different, update with the new type and length (if provided)
             if ($mappedConfigType !== $dbType) {
@@ -564,10 +615,11 @@ class PgBuilder extends Xplend
 
         // Atualiza DEFAULT (SET/DROP)
         foreach ($fields as $k => $v) {
-            if (!isset($field_curr[$k])) continue;
+            if (!isset($field_curr[$k]))
+                continue;
 
             $typeUpper = strtoupper($v['Type']);
-            $dbDefaultRaw = isset($field_curr[$k]['column_default']) ? (string)$field_curr[$k]['column_default'] : '';
+            $dbDefaultRaw = isset($field_curr[$k]['column_default']) ? (string) $field_curr[$k]['column_default'] : '';
 
             // 1) NUNCA mexer em default de SERIAL (id custom field) => evita DROP do nextval()
             if (strpos($typeUpper, 'SERIAL') !== false) {
@@ -585,7 +637,7 @@ class PgBuilder extends Xplend
                 $configDefaultSql = trim(substr($configDefaultClause, strlen('DEFAULT ')));
             }
 
-            $dbDefaultNorm  = $this->normalizeDbDefaultForCompare($dbDefaultRaw);
+            $dbDefaultNorm = $this->normalizeDbDefaultForCompare($dbDefaultRaw);
             $cfgDefaultNorm = $this->normalizeDbDefaultForCompare($configDefaultSql);
 
             // Se no YAML não tem default e no banco tem, remove
@@ -621,7 +673,17 @@ class PgBuilder extends Xplend
             }
         }
 
-        // Create UNIQUE constraints if not exists
+        // Create composite unique indexes if not exists
+        foreach ($composite_unique_indexes as $index_name => $columns) {
+            $index_name_full = "{$table}_{$index_name}_unique_idx";
+            if (!in_array($index_name_full, $existing_index_names)) {
+                $columns_str = implode('", "', $columns);
+                $q = "CREATE UNIQUE INDEX CONCURRENTLY \"$index_name_full\" ON \"$table\" (\"$columns_str\");";
+                $this->pushQuery($q, "ADD UNIQUE INDEX \"$index_name_full\" ...", 'cyan');
+            }
+        }
+
+        // Create UNIQUE constraints if not exists (unique simples)
         foreach ($fields as $k => $v) {
             if (@$v['Key'] === 'UNI') {
                 $unique_name = "{$table}_{$k}_unique";
@@ -678,10 +740,14 @@ class PgBuilder extends Xplend
     {
         global $_APP;
 
-        if (@$argx['--mute']) $this->mute = true;
-        if (@$argx['--create']) $this->create_database = true;
-        if (@$argx['--name']) $this->select_database = $argx['--name'];
-        if (@$argx['--tenant']) $this->select_tenant = $argx['--tenant'];
+        if (@$argx['--mute'])
+            $this->mute = true;
+        if (@$argx['--create'])
+            $this->create_database = true;
+        if (@$argx['--name'])
+            $this->select_database = $argx['--name'];
+        if (@$argx['--tenant'])
+            $this->select_tenant = $argx['--tenant'];
 
         if (!@is_array($_APP['POSTGRES']['DB'])) {
             Mason::say("Ops! config is missing.", "red");
@@ -691,7 +757,8 @@ class PgBuilder extends Xplend
 
         foreach ($_APP['POSTGRES']['DB'] as $db_id => $db_conf) {
             if ($this->select_tenant) {
-                if (!@$db_conf['TENANT_KEYS']) continue;
+                if (!@$db_conf['TENANT_KEYS'])
+                    continue;
             }
 
             if ($this->select_database) {
@@ -703,7 +770,8 @@ class PgBuilder extends Xplend
             Mason::say("► PostgreSQL '$db_id' ...", 'cyan');
 
             if (@$db_conf['PATH']) {
-                if (!is_array($db_conf['PATH'])) $db_conf['PATH'] = [$db_conf['PATH']];
+                if (!is_array($db_conf['PATH']))
+                    $db_conf['PATH'] = [$db_conf['PATH']];
                 for ($i = 0; $i < count($db_conf['PATH']); $i++) {
                     $db_conf['PATH'][$i] = realpath(__DIR__ . '/../../../' . $db_conf['PATH'][$i] . '/');
                 }
@@ -739,12 +807,14 @@ class PgBuilder extends Xplend
                         if (is_file($fp)) {
 
                             // Importante: primeiro exibe o arquivo, depois as execuções dele
-                            if (!$this->mute) Mason::say("❍ Processing: " . realpath($fp), 'magenta');
+                            if (!$this->mute)
+                                Mason::say("❍ Processing: " . realpath($fp), 'magenta');
 
                             $data = @yaml_parse(file_get_contents($fp));
 
                             if (!is_array($data)) {
-                                if (!$this->mute) Mason::say("⚠ Invalid file format. Ignored.", 'yellow');
+                                if (!$this->mute)
+                                    Mason::say("⚠ Invalid file format. Ignored.", 'yellow');
                                 goto nextFile;
                             }
 
@@ -756,10 +826,12 @@ class PgBuilder extends Xplend
                                 $tables_new[] = $table_name;
 
                                 $field = $this->convertField($table_cols);
-                                if (!$field) goto nextTable;
+                                if (!$field)
+                                    goto nextTable;
 
                                 $ignore = @$table_cols['~ignore'];
-                                if ($ignore) goto nextTable;
+                                if ($ignore)
+                                    goto nextTable;
 
                                 $field_curr = array();
                                 if (in_array($table_name, $tables_real)) {
@@ -789,7 +861,8 @@ class PgBuilder extends Xplend
             }
 
             foreach ($tables_real as $k) {
-                if (!in_array($k, $tables_new)) $this->deleteTable($k, $pg);
+                if (!in_array($k, $tables_new))
+                    $this->deleteTable($k, $pg);
             }
 
             execute:
